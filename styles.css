@@ -269,8 +269,8 @@ h1 span {
   }
 
   .hero {
-    align-self: center;
-    padding: 46px 0 22px;
+    align-self: start;
+    padding: clamp(58px, 11vh, 96px) 0 22px;
   }
 
   .eyebrow {
@@ -304,12 +304,13 @@ h1 span {
   }
 
   .proof-row {
+    display: grid;
+    grid-template-columns: 1fr;
     gap: 8px;
     margin-top: 20px;
   }
 
   .proof-row div {
-    flex-basis: 100%;
     min-height: auto;
     padding: 12px;
   }
