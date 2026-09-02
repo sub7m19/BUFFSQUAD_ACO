@@ -98,6 +98,7 @@ a {
   min-height: 46px;
   border-radius: var(--radius);
   font-weight: 900;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
 .hero {
@@ -155,16 +156,32 @@ h1 span {
 }
 
 .site-row span {
-  min-height: 38px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
-  padding: 0 13px;
-  border: 1px solid rgba(35, 206, 217, 0.34);
+  gap: 9px;
+  padding: 0 14px;
+  border: 1px solid rgba(35, 206, 217, 0.36);
   border-radius: var(--radius);
   background: rgba(35, 206, 217, 0.1);
   color: #dffcff;
   font-size: 0.9rem;
-  font-weight: 800;
+  font-weight: 900;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.site-row span:hover {
+  transform: translateY(-2px);
+  border-color: rgba(35, 206, 217, 0.72);
+  background: rgba(35, 206, 217, 0.14);
+}
+
+.site-row i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--peach);
+  box-shadow: 0 0 0 4px rgba(252, 164, 124, 0.16);
 }
 
 .button {
@@ -175,12 +192,41 @@ h1 span {
 .button.primary {
   color: var(--ink);
   background: var(--cyan);
+  box-shadow: 0 10px 26px rgba(35, 206, 217, 0.22);
+  animation: discord-pulse 2.8s ease-in-out infinite;
 }
 
 .button.ghost {
   color: var(--white);
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.08);
+}
+
+.button:hover {
+  transform: translateY(-2px);
+}
+
+.button.primary:hover {
+  background: #47dce5;
+  box-shadow: 0 15px 36px rgba(35, 206, 217, 0.34);
+  animation-play-state: paused;
+}
+
+.button.ghost:hover {
+  color: var(--cyan);
+  border-color: rgba(35, 206, 217, 0.58);
+  background: rgba(35, 206, 217, 0.12);
+}
+
+@keyframes discord-pulse {
+  0%,
+  100% {
+    box-shadow: 0 10px 26px rgba(35, 206, 217, 0.22);
+  }
+
+  50% {
+    box-shadow: 0 10px 30px rgba(35, 206, 217, 0.44), 0 0 0 5px rgba(35, 206, 217, 0.1);
+  }
 }
 
 .proof-row {
@@ -302,6 +348,11 @@ h1 span {
     min-height: 34px;
     padding: 0 10px;
     font-size: 0.78rem;
+  }
+
+  .site-row i {
+    width: 7px;
+    height: 7px;
   }
 
   .proof-row {
