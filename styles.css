@@ -39,7 +39,8 @@ a {
 }
 
 .banner,
-.shade {
+.shade,
+.light-sweep {
   position: fixed;
   inset: 0;
   width: 100%;
@@ -49,10 +50,19 @@ a {
 .banner {
   object-fit: cover;
   object-position: center 38%;
+  transform: scale(1.02);
+  animation: banner-drift 18s ease-in-out infinite alternate;
 }
 
 .shade {
   background: rgba(0, 0, 0, 0.58);
+}
+
+.light-sweep {
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 0%, transparent 42%, rgba(35, 206, 217, 0.18) 48%, rgba(255, 255, 255, 0.08) 50%, transparent 56%, transparent 100%);
+  transform: translateX(-120%);
+  animation: light-sweep 7s ease-in-out infinite;
 }
 
 .topbar,
@@ -261,6 +271,42 @@ h1 span {
   line-height: 1.35;
 }
 
+@keyframes light-sweep {
+  0%,
+  42% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+
+  52% {
+    opacity: 1;
+  }
+
+  68%,
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+
+@keyframes banner-drift {
+  from {
+    transform: scale(1.02) translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: scale(1.07) translate3d(-14px, -6px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banner,
+  .button.primary,
+  .light-sweep {
+    animation: none;
+  }
+}
+
 @media (max-width: 720px) {
   .home {
     min-height: 100svh;
@@ -269,7 +315,8 @@ h1 span {
   }
 
   .banner,
-  .shade {
+  .shade,
+  .light-sweep {
     position: absolute;
   }
 
