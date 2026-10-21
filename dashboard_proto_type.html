@@ -38,6 +38,7 @@
     <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></symbol>
     <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13l3-8h12l3 8v6H3v-6z"/><path d="M3 13h5l1 2h6l1-2h5"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
   </svg>
 
@@ -56,6 +57,8 @@
         <a href="#checkouts" data-route="checkouts"><svg class="icon"><use href="#i-bag"/></svg><span>Checkouts</span></a>
         <a href="#billing" data-route="billing"><svg class="icon"><use href="#i-card"/></svg><span>Billing</span><b class="nav-badge due" id="nav-billing"></b></a>
         <a href="#profiles" data-route="profiles"><svg class="icon"><use href="#i-user"/></svg><span>Profiles</span><b class="nav-badge due" id="nav-profiles"></b></a>
+        <a href="#inbox" data-route="inbox"><svg class="icon"><use href="#i-inbox"/></svg><span>Inbox</span><b class="nav-badge due" id="nav-inbox"></b></a>
+        <a href="#notifications" data-route="notifications"><svg class="icon"><use href="#i-bell"/></svg><span class="hide-sm">Notifications</span><span class="show-sm">Alerts</span></a>
       </nav>
       <div class="sidebar-foot">
         <a class="button ghost small" href="https://discord.gg/fgA3vs4r" target="_blank" rel="noreferrer" data-discord><svg class="icon"><use href="#i-chat"/></svg>Discord<svg class="icon ext" aria-hidden="true"><use href="#i-ext"/></svg><span class="sr-only"> (opens in new tab)</span></a>
@@ -205,7 +208,6 @@
         <div class="segment tabs" role="group" aria-label="Profile sections" data-filter="profileTab">
           <button type="button" aria-pressed="true" data-value="profiles"><svg class="icon"><use href="#i-card"/></svg><span class="hide-sm">Checkout profiles</span><span class="show-sm">Profiles</span> <b id="tab-count-profiles"></b></button>
           <button type="button" aria-pressed="false" data-value="accounts"><svg class="icon"><use href="#i-link"/></svg><span class="hide-sm">Retailer accounts</span><span class="show-sm">Accounts</span> <b id="tab-count-accounts"></b></button>
-          <button type="button" aria-pressed="false" data-value="alerts"><svg class="icon"><use href="#i-bell"/></svg><span class="hide-sm">Notifications</span><span class="show-sm">Alerts</span></button>
         </div>
 
         <section class="panel" id="pane-profiles" aria-label="Checkout profiles">
@@ -244,8 +246,72 @@
           <div class="account-grid" id="accounts-grid"></div>
           <input type="file" id="accounts-file" accept=".txt,text/plain" hidden>
         </div>
+      </section>
 
-        <section class="panel notify-panel" id="pane-alerts" aria-label="Notifications" hidden>
+      <!-- Inbox -->
+      <section class="view" data-view="inbox" aria-labelledby="inbox-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="inbox-title">Inbox</h1>
+            <p class="page-sub">Connect the email we read for retailer verification codes and order emails while we check out for you.</p>
+          </div>
+        </header>
+
+        <section class="panel inbox-panel" aria-labelledby="inbox-connect-title">
+          <div class="inbox-head">
+            <h2 class="label" id="inbox-connect-title">Connection</h2>
+            <span class="status" id="inbox-status"></span>
+          </div>
+
+          <div class="segment" role="group" aria-label="How to connect your inbox" data-filter="inboxMethod">
+            <button type="button" aria-pressed="true" data-value="aycd">AYCD Inbox <b class="rec">Recommended</b></button>
+            <button type="button" aria-pressed="false" data-value="gmail">Gmail IMAP</button>
+          </div>
+
+          <form class="inbox-form" id="inbox-aycd-form">
+            <label>
+              AYCD Inbox key
+              <input name="key" type="password" required autocomplete="off" spellcheck="false" placeholder="Paste your key">
+            </label>
+            <p class="field-hint">In the AYCD Inbox app, open Settings, then Tasks (API), and copy your API key. Keep Inbox open while we check out for you, since the key only works while the app is running.</p>
+            <p class="field-error" id="aycd-error" role="alert" hidden></p>
+            <div class="modal-actions">
+              <button class="button ghost" type="button" data-inbox-clear>Remove</button>
+              <button class="button primary" type="submit">Connect</button>
+            </div>
+          </form>
+
+          <form class="inbox-form" id="inbox-gmail-form" hidden>
+            <label>
+              Gmail address
+              <input name="email" type="email" required autocomplete="off" placeholder="you@gmail.com">
+            </label>
+            <label>
+              App password
+              <input name="password" type="password" required autocomplete="new-password" spellcheck="false" placeholder="16-character app password">
+            </label>
+            <p class="field-hint">Gmail needs an app password, not your normal password. Create one in your Google Account under Security, 2-Step Verification, App passwords.</p>
+            <p class="field-error" id="gmail-error" role="alert" hidden></p>
+            <div class="modal-actions">
+              <button class="button ghost" type="button" data-inbox-clear>Remove</button>
+              <button class="button primary" type="submit">Connect</button>
+            </div>
+          </form>
+
+          <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg><span>Your key or app password is only kept for this visit and is never saved in your browser.</span></p>
+        </section>
+      </section>
+
+      <!-- Notifications -->
+      <section class="view" data-view="notifications" aria-labelledby="notifications-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="notifications-title">Notifications</h1>
+            <p class="page-sub">Choose how we let you know about checkouts, drops and fees.</p>
+          </div>
+        </header>
+
+        <section class="panel notify-panel" aria-label="Notification settings">
           <div class="toggles" id="notify-list"></div>
         </section>
       </section>

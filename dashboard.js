@@ -51,6 +51,9 @@ const defaults = {
   ],
   discord: false,
   notify: { checkout: true, reminders: true, receipts: false },
+  // How we read the member's inbox: "aycd" or "gmail", plus the Gmail address.
+  // The AYCD key or Gmail app password goes through saveInboxSecret() (see Inbox).
+  inbox: { method: null, email: "" },
 };
 
 function load() {
@@ -69,7 +72,7 @@ function load() {
       const v = saved.accounts && saved.accounts[r];
       return [r, Array.isArray(v) ? v : v ? [{ id: "a" + r.length, email: v }] : []];
     }));
-    return { ...defaults, ...saved, accounts, notify: { ...defaults.notify, ...saved.notify } };
+    return { ...defaults, ...saved, accounts, notify: { ...defaults.notify, ...saved.notify }, inbox: { ...defaults.inbox, ...saved.inbox } };
   } catch {
     return structuredClone(defaults);
   }
@@ -85,7 +88,7 @@ function save() {
   }
 }
 
-const filters = { checkouts: "all", stage: "all", search: "", profileSite: "all", profileSearch: "", profileTab: "profiles" };
+const filters = { checkouts: "all", stage: "all", search: "", profileSite: "all", profileSearch: "", profileTab: "profiles", inboxMethod: state.inbox.method || "aycd" };
 
 const money = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -341,8 +344,9 @@ function groupLabel(n) {
 }
 
 function renderProfiles() {
+  // The prototype moves Notifications to its own page, so it has no alerts tab.
   ["profiles", "accounts", "alerts"].forEach((tab) => {
-    byId("pane-" + tab).hidden = filters.profileTab !== tab;
+    if (byId("pane-" + tab)) byId("pane-" + tab).hidden = filters.profileTab !== tab;
   });
   byId("tab-count-profiles").textContent = state.profiles.length;
   byId("tab-count-accounts").textContent = RETAILERS.reduce((n, r) => n + accountsFor(r).length, 0);
@@ -424,6 +428,7 @@ function render() {
   renderCheckouts();
   renderBilling();
   renderProfiles();
+  renderInbox();
   requestAnimationFrame(updateScrollFades);
 }
 
@@ -476,7 +481,7 @@ function update(message, undo) {
 
 // Routing: each sidebar item is its own page.
 
-const ROUTES = ["home", "checkouts", "billing", "profiles"];
+const ROUTES = ["home", "checkouts", "billing", "profiles", "inbox", "notifications"];
 
 function route() {
   // Old #accounts links land on the Retailer accounts tab of Profiles.
@@ -486,7 +491,9 @@ function route() {
     renderProfiles();
     history.replaceState(null, "", "#profiles");
   }
-  const name = ROUTES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home";
+  const hash = location.hash.slice(1);
+  // Pages without a view for this route (the OG dashboard has no Inbox) fall back to Home.
+  const name = ROUTES.includes(hash) && document.querySelector(`.view[data-view="${hash}"]`) ? hash : "home";
   document.querySelectorAll(".view").forEach((v) => {
     const show = v.dataset.view === name;
     v.hidden = !show;
@@ -627,6 +634,116 @@ const accountVault = new Map();
 
 function saveAccountPassword(id, password) {
   accountVault.set(id, password);
+}
+
+// Inbox
+//
+// Members connect one inbox, by AYCD Inbox key (preferred) or Gmail IMAP, so we
+// can read verification codes and order emails. Same rule as passwords: the key
+// or app password stays in memory, and saveInboxSecret() is where it would go to
+// the backend. Gmail is always imap.gmail.com on port 993.
+//
+// Both are checked by main.py before they're saved: Gmail by signing in over IMAP,
+// AYCD with its verify-key call (which also fails while the Inbox app is closed).
+let inboxSecret = null;
+
+async function checkInbox(kind, body) {
+  try {
+    const res = await fetch(`/api/inbox/${kind}/check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch {
+    // Static hosting (GitHub Pages) has no server to run the check.
+    return { ok: false, message: "Checking your inbox needs the BUFFSQUAD server, which isn't running on this site." };
+  }
+}
+
+function saveInboxSecret(secret) {
+  inboxSecret = secret;
+}
+
+function renderInbox() {
+  if (!byId("inbox-status")) return;
+  const { method } = state.inbox;
+  const ready = Boolean(method && inboxSecret);
+  const name = method === "aycd" ? "AYCD Inbox" : "Gmail";
+  const status = byId("inbox-status");
+  status.className = "status " + (ready ? "paid" : method ? "paused" : "due");
+  status.textContent = !method ? "Not connected" : ready ? `${name} connected` : `Re-enter your ${name} details this visit`;
+  byId("nav-inbox").textContent = ready ? "" : "1";
+  byId("nav-inbox").hidden = ready;
+
+  syncSegment("inboxMethod");
+  byId("inbox-aycd-form").hidden = filters.inboxMethod !== "aycd";
+  byId("inbox-gmail-form").hidden = filters.inboxMethod !== "gmail";
+  const gmail = byId("inbox-gmail-form").elements.email;
+  if (state.inbox.email && !gmail.value) gmail.value = state.inbox.email;
+  document.querySelectorAll("[data-inbox-clear]").forEach((b) => (b.hidden = !method));
+}
+
+if (byId("inbox-status")) {
+  const aycdForm = byId("inbox-aycd-form");
+  const gmailForm = byId("inbox-gmail-form");
+
+  // Runs the server check with the button showing "Checking…", and shows the
+  // error under the form if it fails. Returns whether it passed.
+  async function runCheck(form, kind, body) {
+    const error = form.querySelector(".field-error");
+    const submit = form.querySelector('[type="submit"]');
+    const label = submit.textContent;
+    error.hidden = true;
+    submit.disabled = true;
+    submit.textContent = "Checking…";
+    form.setAttribute("aria-busy", "true");
+    const result = await checkInbox(kind, body);
+    submit.disabled = false;
+    submit.textContent = label;
+    form.removeAttribute("aria-busy");
+    if (!result.ok) {
+      error.textContent = result.message;
+      error.hidden = false;
+    }
+    return result.ok;
+  }
+
+  [aycdForm, gmailForm].forEach((form) => form.addEventListener("input", () => (form.querySelector(".field-error").hidden = true)));
+
+  aycdForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const key = aycdForm.elements.key.value.trim();
+    if (!(await runCheck(aycdForm, "aycd", { key }))) return;
+    saveInboxSecret(key);
+    state.inbox = { method: "aycd", email: "" };
+    aycdForm.reset();
+    gmailForm.reset();
+    update("AYCD Inbox connected");
+  });
+
+  gmailForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = gmailForm.elements;
+    const email = f.email.value.trim();
+    // Google shows app passwords in groups of four; the spaces aren't part of it.
+    const password = f.password.value.replace(/\s/g, "");
+    if (!(await runCheck(gmailForm, "gmail", { email, password }))) return;
+    saveInboxSecret(password);
+    state.inbox = { method: "gmail", email };
+    f.password.value = "";
+    aycdForm.reset();
+    update("Gmail connected");
+  });
+
+  document.querySelectorAll("[data-inbox-clear]").forEach((btn) => btn.addEventListener("click", () => {
+    saveInboxSecret(null);
+    state.inbox = structuredClone(defaults.inbox);
+    aycdForm.reset();
+    gmailForm.reset();
+    document.querySelectorAll(".inbox-form .field-error").forEach((el) => (el.hidden = true));
+    update("Inbox removed");
+  }));
 }
 
 // Reads a .txt of `email:password` lines. Only the first colon splits, so

@@ -4107,3 +4107,131 @@ a.tile:hover {
 .empty .button {
   margin-top: 12px;
 }
+
+/* Inbox page: AYCD Inbox key or Gmail IMAP */
+.inbox-panel {
+  display: grid;
+  gap: 18px;
+  max-width: 620px;
+}
+
+.inbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.inbox-head .status {
+  flex: 0 0 auto;
+}
+
+.inbox-panel .segment {
+  justify-self: start;
+}
+
+.inbox-panel .rec {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(123, 227, 160, 0.16);
+  color: var(--green);
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.inbox-form[hidden] {
+  display: none;
+}
+
+.inbox-form {
+  display: grid;
+  gap: 14px;
+}
+
+.inbox-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--soft);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.inbox-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--white);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.inbox-form input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(35, 206, 217, 0.2);
+}
+
+.inbox-form .field-hint {
+  margin-top: -6px;
+}
+
+.inbox-form .modal-actions [hidden] {
+  display: none;
+}
+
+
+.inbox-form .field-error[hidden] {
+  display: none;
+}
+
+.inbox-form .button:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+/* Six sidebar items: the phone bottom bar gets a sixth column */
+@media (max-width: 720px) {
+  .nav {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+/* Member chip: same height as the Discord button, avatar and name centered, log-out pinned right */
+.user-chip {
+  position: relative;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 34px;
+}
+
+.user-chip .avatar.round {
+  width: 20px;
+  height: 20px;
+  flex-basis: 20px;
+  font-size: 0.6rem;
+}
+
+.user-name {
+  flex: 0 1 auto;
+}
+
+.logout {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+}
+
+/* Profiles table header: no navy fill, like the list headers on other pages. It
+   scrolls with the rows instead of sticking, so rows never pass underneath it. */
+.profile-cols {
+  position: static;
+  background: transparent;
+}
