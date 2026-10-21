@@ -4235,3 +4235,15 @@ a.tile:hover {
   position: static;
   background: transparent;
 }
+
+/* Background overlay: same flat shade as the splash page (styles.css) so the photo
+   looks as bright and sharp here. */
+.shade {
+  background: rgba(0, 0, 0, 0.58);
+}
+
+@media (max-width: 720px) {
+  .shade {
+    background: rgba(0, 0, 0, 0.64);
+  }
+}
