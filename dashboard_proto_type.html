@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard | BUFFSQUAD ACO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard_proto_type.css">
+</head>
+<body data-layout="proto">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-bag" viewBox="0 0 24 24"><path d="M6 7h12l1 14H5L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 10h19M6.5 15h4"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5z"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4l2-2z"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M2 6h12v10H2zM14 10h4l4 3v3h-8"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></symbol>
+    <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  </svg>
+
+  <img class="banner" src="assets/arnold-banner.png" alt="" aria-hidden="true">
+  <div class="shade" aria-hidden="true"></div>
+  <div class="light-sweep" aria-hidden="true"></div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="BUFFSQUAD ACO home">
+        <span class="brand-mark">BS</span>
+        <span>BUFFSQUAD ACO</span>
+      </a>
+      <nav class="nav" aria-label="Dashboard">
+        <a href="#home" data-route="home"><svg class="icon"><use href="#i-home"/></svg><span>Home</span></a>
+        <a href="#checkouts" data-route="checkouts"><svg class="icon"><use href="#i-bag"/></svg><span>Checkouts</span></a>
+        <a href="#billing" data-route="billing"><svg class="icon"><use href="#i-card"/></svg><span>Billing</span><b class="nav-badge due" id="nav-billing"></b></a>
+        <a href="#profiles" data-route="profiles"><svg class="icon"><use href="#i-user"/></svg><span>Profiles</span><b class="nav-badge due" id="nav-profiles"></b></a>
+      </nav>
+      <div class="sidebar-foot">
+        <a class="button ghost small" href="https://discord.gg/fgA3vs4r" target="_blank" rel="noreferrer" data-discord><svg class="icon"><use href="#i-chat"/></svg>Discord<svg class="icon ext" aria-hidden="true"><use href="#i-ext"/></svg><span class="sr-only"> (opens in new tab)</span></a>
+        <div class="user-chip">
+          <span class="avatar round" id="user-avatar">M</span>
+          <span class="user-name">
+            <strong id="user-chip-name">Member</strong>
+          </span>
+          <a class="logout" href="index.html" aria-label="Log out" title="Log out"><svg class="icon"><use href="#i-out"/></svg></a>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main" id="main" tabindex="-1">
+      <!-- Home -->
+      <section class="view" data-view="home" aria-labelledby="home-title">
+        <header class="page-head">
+          <div>
+            <p class="eyebrow">Pay only when we hit</p>
+            <h1 id="home-title">Welcome back, <span id="user-name">Member</span></h1>
+            <p class="page-sub" id="page-sub"></p>
+          </div>
+        </header>
+
+        <section class="panel overview" aria-label="Your results">
+          <div class="tiles">
+            <div class="tile hit-card" id="hit-tile">
+              <div class="hit-head">
+                <small>Hit rate</small>
+                <span class="hit-legend"><i class="ok"></i><b id="hit-ok">0</b> hit<i class="bad"></i><b id="hit-bad">0</b> missed</span>
+              </div>
+              <div class="hit-body">
+                <strong id="hit-rate">0%</strong>
+                <div class="hit-segs" id="hit-segs" aria-hidden="true"></div>
+              </div>
+            </div>
+            <a class="tile" href="#checkouts">
+              <span class="tile-icon cyan"><svg class="icon"><use href="#i-bag"/></svg></span>
+              <div><small>Checkouts</small><strong id="stat-checkouts">0</strong><span class="tile-note" id="note-checkouts"></span></div>
+            </a>
+            <div class="tile">
+              <span class="tile-icon violet"><svg class="icon"><use href="#i-chart"/></svg></span>
+              <div><small>Retail value</small><strong id="stat-value">$0</strong><span class="tile-note" id="note-value"></span></div>
+            </div>
+            <div class="tile due">
+              <span class="tile-icon peach"><svg class="icon"><use href="#i-card"/></svg></span>
+              <div><small>Balance due</small><strong id="stat-due">$0</strong><span class="tile-note" id="note-due"></span></div>
+              <a class="button primary small tile-pay" id="pay-now" href="https://discord.gg/fgA3vs4r" target="_blank" rel="noreferrer" data-discord>Pay<span class="sr-only"> balance in Discord (opens in new tab)</span></a>
+            </div>
+          </div>
+        </section>
+
+        <div class="home-grid">
+          <section class="panel" aria-labelledby="recent-orders-title">
+            <div class="panel-head">
+              <h2 class="label" id="recent-orders-title">Recent orders</h2>
+              <a class="text-link" href="#checkouts">All orders<svg class="icon"><use href="#i-arrow"/></svg></a>
+            </div>
+            <ul class="mini-list recent-orders" id="recent-orders"></ul>
+          </section>
+        </div>
+      </section>
+
+      <!-- Checkouts -->
+      <section class="view" data-view="checkouts" aria-labelledby="checkouts-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="checkouts-title">Checkouts</h1>
+            <p class="page-sub">Every order we've placed for you and where it is now.</p>
+          </div>
+        </header>
+        <div class="chips" id="stage-chips"></div>
+        <section class="panel">
+          <div class="toolbar">
+            <label class="search">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <span class="sr-only">Search checkouts</span>
+              <input type="search" id="checkout-search" placeholder="Search product or order #">
+            </label>
+            <div class="segment" role="group" aria-label="Filter by fee" data-filter="checkouts">
+              <button type="button" aria-pressed="true" data-value="all">All</button>
+              <button type="button" aria-pressed="false" data-value="due">Fee due</button>
+              <button type="button" aria-pressed="false" data-value="paid">Paid</button>
+            </div>
+          </div>
+          <ul class="checkout-list" id="checkouts-list"></ul>
+          <div class="empty" id="checkouts-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-bag"/></svg></span>
+            <strong>No checkouts found</strong>
+            <span>Join a drop and your orders will show up here.</span>
+          </div>
+        </section>
+      </section>
+
+      <!-- Billing -->
+      <section class="view" data-view="billing" aria-labelledby="billing-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="billing-title">Billing</h1>
+            <p class="page-sub">You only pay an ACO fee after a confirmed checkout.</p>
+          </div>
+        </header>
+        <div class="split">
+          <section class="panel" aria-labelledby="invoices-title">
+            <div class="panel-head">
+              <h2 class="label" id="invoices-title">Fees</h2>
+              <span class="panel-count" id="invoice-count"></span>
+            </div>
+            <ul class="checkout-list" id="invoice-list"></ul>
+          </section>
+
+          <section class="panel billing" aria-label="Balance">
+            <p class="billing-label">Balance due</p>
+            <p class="billing-amount" id="billing-due">$0.00</p>
+            <div class="meter" role="img" id="billing-meter-wrap">
+              <span id="billing-meter"></span>
+            </div>
+            <div class="meter-legend">
+              <span><i class="paid"></i>Paid <b id="billing-paid">$0</b></span>
+              <span><i class="due"></i>Due <b id="billing-due-small">$0</b></span>
+            </div>
+            <ul class="billing-points">
+              <li><svg class="icon"><use href="#i-check"/></svg>Fees only on confirmed checkouts</li>
+              <li><svg class="icon"><use href="#i-check"/></svg>Canceled orders are never charged</li>
+              <li><svg class="icon"><use href="#i-check"/></svg>No upfront or monthly fees</li>
+            </ul>
+            <a class="button primary" href="https://discord.gg/fgA3vs4r" target="_blank" rel="noreferrer" data-discord>Pay in Discord<svg class="icon ext" aria-hidden="true"><use href="#i-ext"/></svg><span class="sr-only"> (opens in new tab)</span></a>
+          </section>
+        </div>
+      </section>
+
+      <!-- Profiles -->
+      <section class="view" data-view="profiles" aria-labelledby="profiles-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="profiles-title">Profiles</h1>
+            <p class="page-sub">Where we ship, which card we use, and the retailer accounts we check out on.</p>
+          </div>
+          <div class="head-actions">
+            <button class="button ghost" type="button" id="import-button"><svg class="icon"><use href="#i-upload"/></svg>Import</button>
+            <button class="button ghost" type="button" id="export-button"><svg class="icon"><use href="#i-download"/></svg>Export</button>
+            <button class="button primary" type="button" data-add-profile="Target"><svg class="icon"><use href="#i-plus"/></svg>Add profile</button>
+          </div>
+          <input type="file" id="import-file" accept=".json,.csv,application/json,text/csv" hidden>
+        </header>
+
+        <div class="segment tabs" role="group" aria-label="Profile sections" data-filter="profileTab">
+          <button type="button" aria-pressed="true" data-value="profiles"><svg class="icon"><use href="#i-card"/></svg><span class="hide-sm">Checkout profiles</span><span class="show-sm">Profiles</span> <b id="tab-count-profiles"></b></button>
+          <button type="button" aria-pressed="false" data-value="accounts"><svg class="icon"><use href="#i-link"/></svg><span class="hide-sm">Retailer accounts</span><span class="show-sm">Accounts</span> <b id="tab-count-accounts"></b></button>
+          <button type="button" aria-pressed="false" data-value="alerts"><svg class="icon"><use href="#i-bell"/></svg><span class="hide-sm">Notifications</span><span class="show-sm">Alerts</span></button>
+        </div>
+
+        <section class="panel" id="pane-profiles" aria-label="Checkout profiles">
+          <div class="toolbar">
+            <div class="segment" role="group" aria-label="Filter profiles by site" data-filter="profileSite" id="profile-sites"></div>
+            <label class="search">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <span class="sr-only">Search profiles</span>
+              <input type="search" id="profile-search" placeholder="Search name, email or address">
+            </label>
+            <button class="button ghost small danger" type="button" id="delete-group"><svg class="icon"><use href="#i-trash"/></svg><span id="delete-group-label">Delete all</span></button>
+          </div>
+          <div id="profile-table">
+            <div class="profile-row profile-cols" aria-hidden="true">
+              <span></span><span>Profile</span><span>Sites</span><span>Ship to</span><span>Card</span><span>Active</span><span></span>
+            </div>
+            <ul class="profile-list" id="profile-list"></ul>
+          </div>
+          <div class="empty" id="profiles-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-card"/></svg></span>
+            <strong>No profiles yet</strong>
+            <span id="profiles-empty-text"></span>
+            <button class="button ghost small" type="button" data-add-profile="Target"><svg class="icon"><use href="#i-plus"/></svg>Add profile</button>
+          </div>
+        </section>
+
+        <div id="pane-accounts" hidden>
+          <div class="toolbar accounts-toolbar">
+            <p class="field-hint">Import a .txt file with one account per line, written as <code>email:password</code>.</p>
+            <div class="head-actions">
+              <button class="button ghost small" type="button" id="accounts-import"><svg class="icon"><use href="#i-upload"/></svg>Import .txt</button>
+              <button class="button ghost small" type="button" id="accounts-export"><svg class="icon"><use href="#i-download"/></svg>Export .txt</button>
+              <button class="button primary small" type="button" data-link="Target"><svg class="icon"><use href="#i-plus"/></svg>Add Account</button>
+            </div>
+          </div>
+          <div class="account-grid" id="accounts-grid"></div>
+          <input type="file" id="accounts-file" accept=".txt,text/plain" hidden>
+        </div>
+
+        <section class="panel notify-panel" id="pane-alerts" aria-label="Notifications" hidden>
+          <div class="toggles" id="notify-list"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="modal" id="account-modal" aria-labelledby="account-modal-title">
+    <form id="account-form" method="dialog">
+      <div>
+        <p class="eyebrow">Retailer account</p>
+        <h2 id="account-modal-title">Add account</h2>
+      </div>
+      <fieldset>
+        <legend>Retailer</legend>
+        <div class="site-picks" id="account-picks"></div>
+      </fieldset>
+      <label>
+        Account email
+        <input name="email" type="email" required autocomplete="off" placeholder="you@email.com">
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" required autocomplete="new-password">
+      </label>
+      <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg>We only use this to sign in and check out for you. It's never shown on your dashboard.</p>
+      <div class="modal-actions">
+        <button class="button ghost" type="button" data-close-modal>Cancel</button>
+        <button class="button primary" type="submit" id="account-submit">Add account</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="accounts-io-modal" aria-labelledby="accounts-io-title">
+    <form id="accounts-io-form" method="dialog">
+      <div>
+        <p class="eyebrow">Retailer accounts</p>
+        <h2 id="accounts-io-title">Import accounts</h2>
+      </div>
+      <fieldset>
+        <legend>Retailer</legend>
+        <div class="site-picks" id="accounts-io-picks"></div>
+      </fieldset>
+      <div class="format-box" id="accounts-io-format">
+        <strong>Your file must be a .txt in this format</strong>
+        <span>One account per line: the email, a colon, then the password. No header row.</span>
+        <pre>john@example.com:Password123
+jane@example.com:Hunter2!</pre>
+      </div>
+      <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg><span id="accounts-io-note"></span></p>
+      <div class="modal-actions">
+        <button class="button ghost" type="button" data-close-modal>Cancel</button>
+        <button class="button primary" type="submit" id="accounts-io-submit">Choose .txt file</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="export-modal" aria-labelledby="export-modal-title">
+    <form id="export-form" method="dialog">
+      <div>
+        <p class="eyebrow">AYCD profile format</p>
+        <h2 id="export-modal-title">Export profiles</h2>
+      </div>
+      <fieldset>
+        <legend>File type</legend>
+        <div class="site-picks">
+          <label class="site-pick">
+            <input type="radio" name="format" value="json" checked>
+            <span class="avatar">{ }</span>
+            <span><strong>JSON</strong><small>Imports straight into AYCD</small></span>
+            <span class="site-check"><svg class="icon"><use href="#i-check"/></svg></span>
+          </label>
+          <label class="site-pick">
+            <input type="radio" name="format" value="csv">
+            <span class="avatar">CSV</span>
+            <span><strong>CSV</strong><small>Opens in Excel or Sheets</small></span>
+            <span class="site-check"><svg class="icon"><use href="#i-check"/></svg></span>
+          </label>
+        </div>
+      </fieldset>
+      <label class="check-row">
+        <input type="checkbox" name="cards" checked>
+        <span>Include full card numbers and CVV</span>
+      </label>
+      <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg><span id="export-note"></span></p>
+      <div class="modal-actions">
+        <button class="button ghost" type="button" data-close-modal>Cancel</button>
+        <button class="button primary" type="submit"><svg class="icon"><use href="#i-download"/></svg>Download</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal wide" id="profile-modal" aria-labelledby="profile-modal-title">
+    <form id="profile-form" method="dialog">
+      <div>
+        <p class="eyebrow">Checkout profile</p>
+        <h2 id="profile-modal-title">New profile</h2>
+      </div>
+
+      <fieldset>
+        <legend><span>1</span>Sites</legend>
+        <p class="field-hint">Pick where this profile checks out. One profile can cover both.</p>
+        <div class="site-picks" id="profile-sites-pick"></div>
+        <p class="field-error" id="sites-error" hidden>Pick at least one site.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend><span>2</span>Profile</legend>
+        <div class="form-row">
+          <label>
+            Profile name
+            <input name="label" required maxlength="24" placeholder="Main">
+          </label>
+          <label>
+            Account email
+            <input name="email" type="email" autocomplete="email" placeholder="you@email.com">
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend><span>3</span>Shipping</legend>
+        <div class="form-row">
+          <label>
+            Full name
+            <input name="name" required autocomplete="name">
+          </label>
+          <label>
+            <span>Phone <small>optional</small></span>
+            <input name="phone" type="tel" autocomplete="tel">
+          </label>
+        </div>
+        <div class="form-row wide-first">
+          <label>
+            Address
+            <input name="line1" required autocomplete="address-line1">
+          </label>
+          <label>
+            <span>Apt / unit <small>optional</small></span>
+            <input name="line2" autocomplete="address-line2">
+          </label>
+        </div>
+        <div class="form-row three">
+          <label>
+            City
+            <input name="city" required autocomplete="address-level2">
+          </label>
+          <label>
+            State
+            <input name="state" required maxlength="2" autocomplete="address-level1" placeholder="CA">
+          </label>
+          <label>
+            ZIP
+            <input name="zip" required inputmode="numeric" pattern="[0-9]{5}" autocomplete="postal-code">
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend><span>4</span>Payment card</legend>
+        <label>
+          Name on card
+          <input name="cardName" autocomplete="cc-name" required>
+        </label>
+        <label>
+          Card number
+          <span class="card-input">
+            <input name="cardNumber" inputmode="numeric" autocomplete="cc-number" maxlength="23" placeholder="1234 5678 9012 3456">
+            <span class="card-brand" id="card-brand-live" hidden></span>
+          </span>
+          <small class="field-hint" id="card-keep" hidden></small>
+        </label>
+        <div class="form-row">
+          <label>
+            Expires
+            <input name="exp" inputmode="numeric" pattern="(0[1-9]|1[0-2])/[0-9]{2}" maxlength="5" autocomplete="cc-exp" placeholder="MM/YY" required>
+          </label>
+          <label>
+            Security code
+            <input name="cvv" inputmode="numeric" pattern="[0-9]{3,4}" maxlength="4" autocomplete="cc-csc" placeholder="CVV">
+          </label>
+        </div>
+        <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg>After you save, only the card type and last 4 digits are shown on your dashboard.</p>
+      </fieldset>
+
+      <div class="modal-actions">
+        <button class="button ghost" type="button" data-close-modal>Cancel</button>
+        <button class="button primary" type="submit" id="profile-submit">Add profile</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
