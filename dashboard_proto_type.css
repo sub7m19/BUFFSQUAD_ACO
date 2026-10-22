@@ -4200,6 +4200,13 @@ a.tile:hover {
   .nav {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
+
+  /* The desktop .nav a sizing further up the file outranks the earlier phone rules */
+  .nav a {
+    gap: 4px;
+    padding: 8px 2px;
+    font-size: 0.68rem;
+  }
 }
 
 /* Member chip: same height as the Discord button, avatar and name centered, log-out pinned right */
@@ -4227,6 +4234,34 @@ a.tile:hover {
   top: 50%;
   right: 6px;
   transform: translateY(-50%);
+}
+
+/* Phone top bar: just the avatar and log-out, no centering padding */
+@media (max-width: 720px) {
+  .user-chip {
+    min-height: 0;
+    padding: 0;
+  }
+
+  .logout {
+    position: static;
+    transform: none;
+  }
+}
+
+/* Narrow phones: trim the top bar and tab labels so nothing spills sideways */
+@media (max-width: 380px) {
+  .sidebar-foot .button {
+    padding: 0 10px;
+  }
+
+  .sidebar-foot .button .ext {
+    display: none;
+  }
+
+  .nav a {
+    font-size: 0.62rem;
+  }
 }
 
 /* Profiles table header: no navy fill, like the list headers on other pages. It
