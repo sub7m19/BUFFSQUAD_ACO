@@ -4247,3 +4247,53 @@ a.tile:hover {
     background: rgba(0, 0, 0, 0.64);
   }
 }
+
+/* Phone fixes: these rules come after the desktop overrides above, which otherwise
+   win on small screens too. */
+@media (max-width: 720px) {
+  /* Short pages: keep the top bar slim instead of sharing the spare height */
+  .app {
+    grid-template-rows: auto 1fr;
+  }
+
+  /* Bottom tab bar labels fit their column */
+  .nav a {
+    gap: 4px;
+    padding: 8px 2px;
+    font-size: 0.68rem;
+  }
+
+  /* Member chip: just the avatar and log-out icon */
+  .user-chip {
+    gap: 8px;
+    padding: 0;
+  }
+
+  .logout {
+    position: static;
+    transform: none;
+  }
+
+  /* Inbox: status pill wraps under the heading; toggle shrinks to the card */
+  .inbox-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inbox-head {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+
+  .inbox-head .status {
+    flex: 0 1 auto;
+    max-width: 100%;
+    padding: 4px 10px;
+    line-height: 1.3;
+    white-space: normal;
+  }
+
+  .inbox-panel .segment button {
+    padding: 7px 6px;
+    white-space: normal;
+  }
+}
