@@ -120,6 +120,7 @@
               <span class="sr-only">Search checkouts</span>
               <input type="search" id="checkout-search" placeholder="Product, order #, profile or member">
             </label>
+            <button class="button ghost" type="button" id="select-mode" aria-pressed="false"><svg class="icon"><use href="#i-check"/></svg>Select</button>
           </div>
           <div class="segment tabs admin-tabs" role="group" aria-label="Show" data-filter="view">
             <button type="button" aria-pressed="true" data-value="">Hits</button>
@@ -127,6 +128,14 @@
             <button type="button" aria-pressed="false" data-value="due">Fee due</button>
             <button type="button" aria-pressed="false" data-value="misses">Misses</button>
             <button type="button" aria-pressed="false" data-value="dm_failed">DM failed</button>
+          </div>
+          <div class="bulk-bar" id="bulk-bar" hidden>
+            <label class="check-row"><input type="checkbox" id="select-all"><span>Select all shown</span></label>
+            <span class="bulk-count" id="bulk-count">0 selected</span>
+            <div class="bulk-actions">
+              <button class="button ghost small danger-text" type="button" id="delete-selected" disabled><svg class="icon"><use href="#i-trash"/></svg>Delete selected</button>
+              <button class="button ghost small danger-text" type="button" id="delete-view"><svg class="icon"><use href="#i-trash"/></svg>Delete all in this view</button>
+            </div>
           </div>
           <ul class="checkout-list" id="checkout-list"></ul>
           <div class="empty" id="checkouts-empty" hidden>
@@ -385,6 +394,26 @@
         <button class="button ghost" type="button" id="checkout-resend" hidden><svg class="icon"><use href="#i-chat"/></svg>Resend DM</button>
         <button class="button ghost" type="button" data-close-modal>Cancel</button>
         <button class="button primary" type="submit" id="checkout-submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Confirm deleting checkouts -->
+  <dialog class="modal" id="confirm-modal" aria-labelledby="confirm-title">
+    <form id="confirm-form" method="dialog">
+      <div>
+        <p class="eyebrow">Can't be undone</p>
+        <h2 id="confirm-title">Delete checkouts?</h2>
+      </div>
+      <p class="field-hint" id="confirm-text"></p>
+      <label id="confirm-type-row" hidden>
+        <span>Type <b>DELETE</b> to confirm</span>
+        <input id="confirm-type" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="field-error" id="confirm-error" hidden></p>
+      <div class="modal-actions">
+        <button class="button ghost" type="button" data-close-modal>Cancel</button>
+        <button class="button primary danger-fill" type="submit" id="confirm-go">Delete</button>
       </div>
     </form>
   </dialog>

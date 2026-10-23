@@ -503,6 +503,22 @@ def _int(value):
         raise AppError(400, "Bad request.")
 
 
+def checkout_filter(view: str, search: str) -> tuple[str, list]:
+    """SQL WHERE clause for an admin checkouts view (hits, unmatched, due, misses, dm_failed) and search."""
+    where = {
+        "unmatched": "checkouts.user_id IS NULL AND checkouts.result = 'hit'",
+        "misses": "checkouts.result = 'miss'",
+        "due": "checkouts.result = 'hit' AND checkouts.paid = 0 AND checkouts.stage != 'canceled'",
+        "dm_failed": "checkouts.dm_status = 'failed'",
+    }.get(view, "checkouts.result = 'hit'")
+    args = []
+    if search:
+        where += (" AND (checkouts.product LIKE ? OR checkouts.order_no LIKE ? OR checkouts.profile_name LIKE ?"
+                  " OR users.username LIKE ? OR users.display_name LIKE ?)")
+        args = [f"%{search}%"] * 5
+    return where, args
+
+
 CHECKOUT_SELECT = """SELECT checkouts.*, COALESCE(NULLIF(users.display_name, ''), users.username) AS member
                      FROM checkouts LEFT JOIN users ON users.id = checkouts.user_id"""
 
@@ -574,23 +590,33 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         return h.send_json(200, {"value": value})
 
     if (method, path) == ("GET", "/api/admin/checkouts"):
-        where, args = ["1 = 1"], []
-        view = q("view")
-        if view == "unmatched":
-            where.append("checkouts.user_id IS NULL AND checkouts.result = 'hit'")
-        elif view == "misses":
-            where.append("checkouts.result = 'miss'")
-        elif view == "due":
-            where.append("checkouts.result = 'hit' AND checkouts.paid = 0 AND checkouts.stage != 'canceled'")
-        elif view == "dm_failed":
-            where.append("checkouts.dm_status = 'failed'")
-        else:
-            where.append("checkouts.result = 'hit'")
-        if q("q"):
-            where.append("(checkouts.product LIKE ? OR checkouts.order_no LIKE ? OR checkouts.profile_name LIKE ? OR users.username LIKE ? OR users.display_name LIKE ?)")
-            args += [f"%{q('q')}%"] * 5
-        rows = conn.execute(f"{CHECKOUT_SELECT} WHERE {' AND '.join(where)} ORDER BY checkouts.created_at DESC, checkouts.id DESC LIMIT 500", args).fetchall()
+        where, args = checkout_filter(q("view"), q("q"))
+        rows = conn.execute(f"{CHECKOUT_SELECT} WHERE {where} ORDER BY checkouts.created_at DESC, checkouts.id DESC LIMIT 500", args).fetchall()
         return h.send_json(200, [db.checkout_json(r) for r in rows])
+
+    if (method, path) == ("POST", "/api/admin/checkouts/delete"):
+        # Either the ticked checkouts (ids), or everything in a view and search (all),
+        # which also covers rows past the 500 the list shows. dryRun only counts.
+        body = h.body(limit=128 * 1024)
+        if body.get("all"):
+            where, args = checkout_filter(str(body.get("view") or ""), str(body.get("q") or ""))
+            ids = [r["id"] for r in conn.execute(f"SELECT checkouts.id FROM checkouts LEFT JOIN users ON users.id = checkouts.user_id WHERE {where}", args)]
+        else:
+            try:
+                ids = sorted({int(i) for i in body.get("ids") or []})
+            except (TypeError, ValueError):
+                raise AppError(400, "Bad request.")
+            if len(ids) > 10000:
+                raise AppError(400, "Too many at once. Use delete all in this view instead.")
+            ids = [r["id"] for r in conn.execute(f"SELECT id FROM checkouts WHERE id IN ({','.join('?' * len(ids))})", ids)] if ids else []
+        if body.get("dryRun"):
+            return h.send_json(200, {"count": len(ids)})
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            conn.execute(f"DELETE FROM checkouts WHERE id IN ({','.join('?' * len(chunk))})", chunk)
+        scope = "all in view " + (body.get("view") or "hits") + (f", search '{body.get('q')}'" if body.get("q") else "") if body.get("all") else "selected"
+        db.audit(conn, admin["id"], "checkout.bulk_delete", f"{len(ids)} checkout{'' if len(ids) == 1 else 's'} ({scope})")
+        return h.send_json(200, {"ok": True, "deleted": len(ids)})
 
     if (method, path) == ("POST", "/api/admin/checkouts"):
         body = h.body()

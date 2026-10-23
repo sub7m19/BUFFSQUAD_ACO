@@ -273,6 +273,33 @@ class ServerTest(ServerCase):
         self.assertIn(b"Welcome back", page)
         self.assertEqual(headers["Cache-Control"], "no-store")  # Back button can't show it after signing out
 
+    def test_bulk_delete_checkouts(self):
+        admin = self.client().login("bulkboss", admin=True)
+        with db.transaction() as conn:
+            uid = conn.execute("SELECT id FROM users WHERE username = 'bulkboss'").fetchone()["id"]
+            mk = lambda product, status="success": db.record_checkout(
+                conn, {"status": status, "product": product, "retailer": "Target"}, user_id=uid, notify=False)
+            picked = [mk("ZZBULK pick 1"), mk("ZZBULK pick 2")]
+            kept = mk("ZZBULK keep")
+            misses = [mk("ZZBULK miss", "decline"), mk("ZZBULK miss", "decline")]
+            other = mk("Unrelated item")
+
+        # Ticked ones only.
+        status, out, _ = admin.request("POST", "/api/admin/checkouts/delete", {"ids": picked})
+        self.assertEqual((status, out["deleted"]), (200, 2))
+        # Everything in a view + search: count first, then delete. Only the misses go.
+        _, dry, _ = admin.request("POST", "/api/admin/checkouts/delete", {"all": True, "view": "misses", "q": "ZZBULK", "dryRun": True})
+        self.assertEqual(dry["count"], 2)
+        _, out, _ = admin.request("POST", "/api/admin/checkouts/delete", {"all": True, "view": "misses", "q": "ZZBULK"})
+        self.assertEqual(out["deleted"], 2)
+        with db.transaction() as conn:
+            left = {r["id"] for r in conn.execute("SELECT id FROM checkouts WHERE id IN (?, ?, ?, ?, ?, ?)", [*picked, kept, *misses, other])}
+        self.assertEqual(left, {kept, other})
+
+        self.assertEqual(self.client().login("nobody").request("POST", "/api/admin/checkouts/delete", {"ids": [kept]})[0], 403)
+        _, audit, _ = admin.request("GET", "/api/admin/audit")
+        self.assertTrue(any(a["action"] == "checkout.bulk_delete" and "2 checkouts (selected)" in a["detail"] for a in audit))
+
     def test_checkout_channels(self):
         admin = self.client().login("chief", admin=True)
         status, data, _ = admin.request("GET", "/api/admin/channels")

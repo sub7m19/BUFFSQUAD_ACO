@@ -19,6 +19,8 @@ const ROUTES = ["overview", "checkouts", "channels", "members", "export", "setti
 
 const data = { members: [], checkouts: [], settings: null };
 const filters = { view: "", search: "", memberSearch: "" };
+// Checkouts page selection mode: ids ticked for deleting.
+const selection = { on: false, ids: new Set() };
 
 const byId = (id) => document.getElementById(id);
 const icon = (name) => `<svg class="icon"><use href="#i-${name}"/></svg>`;
@@ -72,13 +74,15 @@ const feeStatus = (c) => c.result === "miss"
     ? `<span class="status paused">No fee</span>`
     : `<span class="status ${c.paid ? "paid" : "due"}">${c.paid ? "Paid" : "Due"}</span>`;
 
-function checkoutRow(c) {
+function checkoutRow(c, selectable = false) {
   const who = c.member
     ? escape(c.member)
     : `<b class="unmatched">Unmatched</b>${c.profileName ? ` · profile “${escape(c.profileName)}”` : " · no profile in webhook"}`;
   const dm = DM[c.dmStatus];
   return `
-    <li class="admin-row" data-checkout="${c.id}" tabindex="0" role="button" aria-label="Edit ${escape(c.product)}">
+    <li class="admin-row ${selectable && selection.ids.has(c.id) ? "selected" : ""}" data-checkout="${c.id}" tabindex="0" role="button"
+        aria-label="${selectable ? "Select" : "Edit"} ${escape(c.product)}"${selectable ? ` aria-pressed="${selection.ids.has(c.id)}"` : ""}>
+      ${selectable ? `<span class="row-check" aria-hidden="true">${icon("check")}</span>` : ""}
       <span class="avatar">${escape(initials(c.retailer))}</span>
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
@@ -119,7 +123,7 @@ async function loadOverview() {
     : `<span class="status due">Bot not running</span> Start it with <code>python bot.py</code>`;
 
   lastRecent = o.recent;
-  byId("recent-list").innerHTML = o.recent.map(checkoutRow).join("");
+  byId("recent-list").innerHTML = o.recent.map((c) => checkoutRow(c)).join("");
   byId("recent-empty").hidden = o.recent.length > 0;
   setUnmatched(o.unmatched);
 }
@@ -136,7 +140,11 @@ let searchTimer;
 async function loadCheckouts() {
   const params = new URLSearchParams({ view: filters.view, q: filters.search });
   data.checkouts = await api("GET", `/api/admin/checkouts?${params}`);
-  byId("checkout-list").innerHTML = data.checkouts.map(checkoutRow).join("");
+  // Keep only ticks for checkouts still in this list.
+  const shown = new Set(data.checkouts.map((c) => c.id));
+  selection.ids.forEach((id) => shown.has(id) || selection.ids.delete(id));
+  byId("checkout-list").innerHTML = data.checkouts.map((c) => checkoutRow(c, selection.on)).join("");
+  updateBulkBar();
   byId("checkouts-empty").hidden = data.checkouts.length > 0;
   byId("checkouts-empty-text").textContent = filters.search ? "Nothing matches that search." : {
     unmatched: "Every checkout is matched to a member.",
@@ -145,6 +153,96 @@ async function loadCheckouts() {
     dm_failed: "Every DM went through.",
   }[filters.view] || "No checkouts yet.";
 }
+
+// Selecting and deleting checkouts
+
+function updateBulkBar() {
+  const n = selection.ids.size;
+  byId("bulk-bar").hidden = !selection.on;
+  byId("bulk-count").textContent = `${n} selected`;
+  byId("delete-selected").disabled = n === 0;
+  byId("delete-selected").lastChild.textContent = n ? `Delete ${n} selected` : "Delete selected";
+  byId("delete-view").hidden = data.checkouts.length === 0;
+  const all = byId("select-all");
+  all.checked = n > 0 && n === data.checkouts.length;
+  all.indeterminate = n > 0 && n < data.checkouts.length;
+  byId("select-mode").setAttribute("aria-pressed", selection.on);
+  byId("select-mode").lastChild.textContent = selection.on ? "Done selecting" : "Select";
+}
+
+function toggleRow(row) {
+  const id = Number(row.dataset.checkout);
+  if (selection.ids.has(id)) selection.ids.delete(id);
+  else selection.ids.add(id);
+  row.classList.toggle("selected", selection.ids.has(id));
+  row.setAttribute("aria-pressed", selection.ids.has(id));
+  updateBulkBar();
+}
+
+byId("select-mode").addEventListener("click", () => {
+  selection.on = !selection.on;
+  selection.ids.clear();
+  byId("checkout-list").innerHTML = data.checkouts.map((c) => checkoutRow(c, selection.on)).join("");
+  updateBulkBar();
+});
+
+byId("select-all").addEventListener("change", (e) => {
+  selection.ids = new Set(e.target.checked ? data.checkouts.map((c) => c.id) : []);
+  byId("checkout-list").innerHTML = data.checkouts.map((c) => checkoutRow(c, true)).join("");
+  updateBulkBar();
+});
+
+const VIEW_NAMES = { "": "Hits", unmatched: "Unmatched", due: "Fee due", misses: "Misses", dm_failed: "DM failed" };
+const confirmModal = byId("confirm-modal");
+let pendingDelete = null;
+
+function askToDelete(request, count, typed) {
+  pendingDelete = request;
+  byId("confirm-title").textContent = `Delete ${plural(count, "checkout")}?`;
+  byId("confirm-text").textContent = (request.all
+    ? `Everything in ${VIEW_NAMES[request.view]}${request.q ? ` matching “${request.q}”` : ""}, including any not shown in the list. `
+    : "") + "They disappear from the admin panel and from members' dashboards, along with any fees owed on them. The nightly backup on the server is the only way back.";
+  byId("confirm-type-row").hidden = !typed;
+  byId("confirm-type").value = "";
+  byId("confirm-error").hidden = true;
+  byId("confirm-go").textContent = `Delete ${plural(count, "checkout")}`;
+  confirmModal.showModal();
+  (typed ? byId("confirm-type") : byId("confirm-go")).focus();
+}
+
+byId("delete-selected").addEventListener("click", () => {
+  if (selection.ids.size) askToDelete({ ids: [...selection.ids] }, selection.ids.size, false);
+});
+
+byId("delete-view").addEventListener("click", async () => {
+  try {
+    const request = { all: true, view: filters.view, q: filters.search };
+    const { count } = await api("POST", "/api/admin/checkouts/delete", { ...request, dryRun: true });
+    if (!count) return notify("Nothing to delete in this view.");
+    askToDelete(request, count, true);
+  } catch (err) {
+    notify(err.message);
+  }
+});
+
+byId("confirm-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!byId("confirm-type-row").hidden && byId("confirm-type").value.trim() !== "DELETE") {
+    byId("confirm-error").textContent = "Type DELETE in capitals to confirm.";
+    byId("confirm-error").hidden = false;
+    return;
+  }
+  try {
+    const { deleted } = await api("POST", "/api/admin/checkouts/delete", pendingDelete);
+    confirmModal.close();
+    selection.ids.clear();
+    notify(`Deleted ${plural(deleted, "checkout")}`);
+    refresh();
+  } catch (err) {
+    byId("confirm-error").textContent = err.message;
+    byId("confirm-error").hidden = false;
+  }
+});
 
 byId("checkout-search").addEventListener("input", (e) => {
   filters.search = e.target.value.trim();
@@ -392,7 +490,7 @@ async function openMemberModal(id) {
     section("Retailer accounts", Object.values(accounts).reduce((n, list) => n + (list ? list.length : 0), 0), accountHtml),
     section("Inbox & notifications", null, connections),
     section("Checkouts", m.checkouts.length, m.checkouts.length
-      ? `<ul class="checkout-list">${m.checkouts.map(checkoutRow).join("")}</ul>`
+      ? `<ul class="checkout-list">${m.checkouts.map((c) => checkoutRow(c)).join("")}</ul>`
       : empty("bag", "No checkouts yet.")),
   ].join("");
   byId("member-body").scrollTop = 0;
@@ -797,6 +895,7 @@ const ACTIONS = {
   "checkout.edit": "Edited a checkout", "checkout.delete": "Deleted a checkout", "settings.fees": "Changed fees", "settings.rules": "Changed fee rules", "checkout.refee": "Applied fee rules",
   "member.disable": "Turned off a member", "member.enable": "Turned on a member",
   "channel.add": "Added a checkout channel", "channel.remove": "Removed a checkout channel",
+  "checkout.bulk_delete": "Deleted checkouts",
 };
 
 async function loadAudit() {
@@ -862,6 +961,8 @@ window.addEventListener("hashchange", route);
 function activate(e) {
   const row = e.target.closest("[data-checkout], [data-member]");
   if (!row || e.target.closest("button, a")) return;
+  // In select mode, clicking a checkout on the Checkouts page ticks it instead of opening it.
+  if (selection.on && row.dataset.checkout && row.closest("#checkout-list")) return toggleRow(row);
   if (row.dataset.checkout) openCheckoutModal(Number(row.dataset.checkout)).catch((err) => notify(err.message));
   else openMemberModal(Number(row.dataset.member)).catch((err) => notify(err.message));
 }
@@ -882,7 +983,7 @@ memberModal.addEventListener("close", () => (openMember = null));
 
 // New checkouts appear without a reload.
 setInterval(() => {
-  if (!document.hidden && !checkoutModal.open && ["overview", "checkouts", "channels"].includes(current())) refresh();
+  if (!document.hidden && !checkoutModal.open && !confirmModal.open && ["overview", "checkouts", "channels"].includes(current())) refresh();
 }, 15000);
 
 (async function boot() {

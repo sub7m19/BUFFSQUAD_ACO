@@ -184,6 +184,96 @@
   justify-self: start;
 }
 
+/* Selecting checkouts to delete */
+
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 133, 133, 0.35);
+  border-radius: var(--radius);
+  background: rgba(255, 133, 133, 0.06);
+}
+
+.bulk-bar .check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--soft);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bulk-count {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.bulk-actions .button.danger-text {
+  margin-right: 0;
+}
+
+.bulk-actions .button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.row-check {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  color: transparent;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.row-check .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.admin-row.selected {
+  background: rgba(255, 133, 133, 0.08);
+}
+
+.admin-row.selected .row-check {
+  border-color: var(--red);
+  background: var(--red);
+  color: var(--ink);
+}
+
+#select-mode[aria-pressed="true"] {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+/* .modal label sets display: grid, which would otherwise override [hidden] */
+#confirm-type-row[hidden] {
+  display: none;
+}
+
+.button.danger-fill {
+  background: var(--red);
+  color: var(--ink);
+  box-shadow: none;
+}
+
 /* Fee rules */
 
 .rule-list {
