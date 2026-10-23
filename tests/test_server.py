@@ -300,6 +300,43 @@ class ServerTest(ServerCase):
         _, audit, _ = admin.request("GET", "/api/admin/audit")
         self.assertTrue(any(a["action"] == "checkout.bulk_delete" and "2 checkouts (selected)" in a["detail"] for a in audit))
 
+    def test_icloud_inbox_check(self):
+        """iCloud signs in with the part before @ for iCloud addresses; both forms are tried."""
+        import imaplib
+
+        tried = []
+
+        class FakeICloud:
+            def __init__(self, host, port, timeout=None):
+                assert (host, port) == ("imap.mail.me.com", 993)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def login(self, name, password):
+                tried.append(name)
+                if (name, password) != ("jake", "abcd-efgh-ijkl-mnop"):
+                    raise imaplib.IMAP4.error("AUTHENTICATIONFAILED")
+
+            def logout(self):
+                pass
+
+        saved = main.imaplib.IMAP4_SSL
+        main.imaplib.IMAP4_SSL = FakeICloud
+        try:
+            c = self.client().login("icloudtester")
+            _, ok, _ = c.request("POST", "/api/inbox/icloud/check", {"email": "jake@icloud.com", "password": "abcd-efgh-ijkl-mnop"})
+            self.assertEqual((ok["ok"], tried), (True, ["jake@icloud.com", "jake"]))
+            _, bad, _ = c.request("POST", "/api/inbox/icloud/check", {"email": "jake@icloud.com", "password": "wrong"})
+            self.assertFalse(bad["ok"])
+            self.assertIn("app-specific password", bad["message"])
+            self.assertEqual(self.client().request("POST", "/api/inbox/icloud/check", {"email": "a@icloud.com", "password": "x"})[0], 401)
+        finally:
+            main.imaplib.IMAP4_SSL = saved
+
     def test_checkout_channels(self):
         admin = self.client().login("chief", admin=True)
         status, data, _ = admin.request("GET", "/api/admin/channels")

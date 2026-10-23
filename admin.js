@@ -340,7 +340,7 @@ function renderMembers() {
       ${avatar(m)}
       <div class="checkout-info">
         <strong>${escape(m.name)} ${m.isAdmin ? `<span class="status paid">Admin</span>` : ""}${m.disabled ? `<span class="status due">Off</span>` : ""}</strong>
-        <span>@${escape(m.username)} · ${plural(m.profiles, "profile")} · ${plural(m.accounts, "account")} · ${m.inbox ? (m.inbox === "aycd" ? "AYCD Inbox" : "Gmail") : "No inbox"}</span>
+        <span>@${escape(m.username)} · ${plural(m.profiles, "profile")} · ${plural(m.accounts, "account")} · ${m.inbox ? ({ aycd: "AYCD Inbox", gmail: "Gmail", icloud: "iCloud" }[m.inbox] || "Inbox") : "No inbox"}</span>
         <span>Last seen ${m.lastLogin ? ago(m.lastLogin) : "never"}</span>
       </div>
       <span class="stage cyan">${icon("bag")}${plural(m.hits, "hit")}</span>
@@ -468,7 +468,7 @@ async function openMemberModal(id) {
           <span class="status ${inbox.method ? "paid" : "due"}">${inbox.method ? "Connected" : "Not connected"}</span>
         </div>
         ${inbox.method
-          ? `<div class="secret" data-secret="inbox:inbox"><span>${inbox.method === "aycd" ? "AYCD Inbox" : `Gmail · ${escape(inbox.email)}`}</span>
+          ? `<div class="secret" data-secret="inbox:inbox"><span>${inbox.method === "aycd" ? "AYCD Inbox" : `${inbox.method === "icloud" ? "iCloud" : "Gmail"} · ${escape(inbox.email)}`}</span>
               ${m.saved.inbox ? revealButton("inbox", "inbox", inbox.method === "aycd" ? "Key" : "App password") : `<small>Not saved on server</small>`}</div>`
           : `<p class="field-hint">No inbox connected for verification codes.</p>`}
       </article>

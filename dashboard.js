@@ -689,12 +689,12 @@ function saveAccountPassword(id, password) {
 
 // Inbox
 //
-// Members connect one inbox, by AYCD Inbox key (preferred) or Gmail IMAP, so we
+// Members connect one inbox, by AYCD Inbox key (preferred), Gmail or iCloud IMAP, so we
 // can read verification codes and order emails. Same rule as passwords: the key
 // or app password stays in memory, and saveInboxSecret() is where it would go to
-// the backend. Gmail is always imap.gmail.com on port 993.
+// the backend. Gmail is imap.gmail.com and iCloud imap.mail.me.com, both on port 993.
 //
-// Both are checked by main.py before they're saved: Gmail by signing in over IMAP,
+// All are checked by main.py before they're saved: Gmail and iCloud by signing in over IMAP,
 // AYCD with its verify-key call (which also fails while the Inbox app is closed).
 let inboxSecret = null;
 
@@ -717,11 +717,13 @@ function saveInboxSecret(secret) {
   storeSecret("inbox", "inbox", secret);
 }
 
+const INBOX_NAMES = { aycd: "AYCD Inbox", gmail: "Gmail", icloud: "iCloud Mail" };
+
 function renderInbox() {
   if (!byId("inbox-status")) return;
   const { method } = state.inbox;
   const ready = Boolean(method && (inboxSecret || saved.inbox));
-  const name = method === "aycd" ? "AYCD Inbox" : "Gmail";
+  const name = INBOX_NAMES[method] || "Inbox";
   const status = byId("inbox-status");
   status.className = "status " + (ready ? "paid" : method ? "paused" : "due");
   status.textContent = !method ? "Not connected" : ready ? `${name} connected` : `Re-enter your ${name} details this visit`;
@@ -729,14 +731,18 @@ function renderInbox() {
   syncSegment("inboxMethod");
   byId("inbox-aycd-form").hidden = filters.inboxMethod !== "aycd";
   byId("inbox-gmail-form").hidden = filters.inboxMethod !== "gmail";
-  const gmail = byId("inbox-gmail-form").elements.email;
-  if (state.inbox.email && !gmail.value) gmail.value = state.inbox.email;
+  byId("inbox-icloud-form").hidden = filters.inboxMethod !== "icloud";
+  // Show the saved address in the form for the connected method.
+  const form = byId(`inbox-${method}-form`);
+  if (state.inbox.email && form && form.elements.email && !form.elements.email.value) form.elements.email.value = state.inbox.email;
   document.querySelectorAll("[data-inbox-clear]").forEach((b) => (b.hidden = !method));
 }
 
 if (byId("inbox-status")) {
   const aycdForm = byId("inbox-aycd-form");
   const gmailForm = byId("inbox-gmail-form");
+  const icloudForm = byId("inbox-icloud-form");
+  const allForms = [aycdForm, gmailForm, icloudForm];
 
   // Runs the server check with the button showing "Checking…", and shows the
   // error under the form if it fails. Returns whether it passed.
@@ -759,7 +765,7 @@ if (byId("inbox-status")) {
     return result.ok;
   }
 
-  [aycdForm, gmailForm].forEach((form) => form.addEventListener("input", () => (form.querySelector(".field-error").hidden = true)));
+  allForms.forEach((form) => form.addEventListener("input", () => (form.querySelector(".field-error").hidden = true)));
 
   aycdForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -767,8 +773,7 @@ if (byId("inbox-status")) {
     if (!(await runCheck(aycdForm, "aycd", { key }))) return;
     saveInboxSecret(key);
     state.inbox = { method: "aycd", email: "" };
-    aycdForm.reset();
-    gmailForm.reset();
+    allForms.forEach((form) => form.reset());
     update("AYCD Inbox connected");
   });
 
@@ -783,14 +788,29 @@ if (byId("inbox-status")) {
     state.inbox = { method: "gmail", email };
     f.password.value = "";
     aycdForm.reset();
+    icloudForm.reset();
     update("Gmail connected");
+  });
+
+  icloudForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = icloudForm.elements;
+    const email = f.email.value.trim();
+    // Apple shows app-specific passwords as xxxx-xxxx-xxxx-xxxx; the dashes are part of it.
+    const password = f.password.value.trim();
+    if (!(await runCheck(icloudForm, "icloud", { email, password }))) return;
+    saveInboxSecret(password);
+    state.inbox = { method: "icloud", email };
+    f.password.value = "";
+    aycdForm.reset();
+    gmailForm.reset();
+    update("iCloud Mail connected");
   });
 
   document.querySelectorAll("[data-inbox-clear]").forEach((btn) => btn.addEventListener("click", () => {
     saveInboxSecret(null);
     state.inbox = structuredClone(defaults.inbox);
-    aycdForm.reset();
-    gmailForm.reset();
+    allForms.forEach((form) => form.reset());
     document.querySelectorAll(".inbox-form .field-error").forEach((el) => (el.hidden = true));
     update("Inbox removed");
   }));

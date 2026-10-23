@@ -20,6 +20,9 @@ import db
 
 GMAIL_IMAP_HOST = "imap.gmail.com"
 GMAIL_IMAP_PORT = 993
+ICLOUD_IMAP_HOST = "imap.mail.me.com"
+ICLOUD_IMAP_PORT = 993
+ICLOUD_DOMAINS = {"icloud.com", "me.com", "mac.com"}
 
 # From AYCD's official Inbox API client (verify_user_api_key).
 AYCD_VERIFY_URL = "https://inbox-api.aycd.io/api/v1/user/verify"
@@ -60,6 +63,25 @@ def check_gmail(email: str, password: str) -> tuple[bool, str]:
         return False, "Gmail didn't accept that email and app password."
     except (OSError, socket.timeout):
         return False, "Couldn't reach Gmail. Try again in a moment."
+
+
+def check_icloud(email: str, password: str) -> tuple[bool, str]:
+    """Sign in to iCloud Mail over IMAP and straight back out. Nothing is stored.
+    Apple's sign-in name is usually just the part before @ for iCloud addresses,
+    and sometimes the full address, so both are tried."""
+    local, _, domain = email.partition("@")
+    names = [email] + ([local] if domain.lower() in ICLOUD_DOMAINS else [])
+    for name in names:
+        try:
+            with imaplib.IMAP4_SSL(ICLOUD_IMAP_HOST, ICLOUD_IMAP_PORT, timeout=15) as imap:
+                imap.login(name, password)
+                imap.logout()
+            return True, "Connected to iCloud Mail."
+        except imaplib.IMAP4.error:
+            continue
+        except (OSError, socket.timeout):
+            return False, "Couldn't reach iCloud Mail. Try again in a moment."
+    return False, "iCloud didn't accept that email and app-specific password."
 
 
 def check_aycd(key: str) -> tuple[bool, str]:
@@ -437,7 +459,7 @@ class Handler(SimpleHTTPRequestHandler):
             db.set_secret(conn, user["id"], kind, "inbox" if kind == "inbox" else ref, value)
             return self.send_json(200, {"ok": True})
 
-        if route in (("POST", "/api/inbox/gmail/check"), ("POST", "/api/inbox/aycd/check")):
+        if route in (("POST", "/api/inbox/gmail/check"), ("POST", "/api/inbox/icloud/check"), ("POST", "/api/inbox/aycd/check")):
             self.require_user(conn)
             body = self.body()
             try:
@@ -445,9 +467,13 @@ class Handler(SimpleHTTPRequestHandler):
                     key = str(body["key"]).strip()
                     ok, message = check_aycd(key) if key else (False, "Paste your AYCD Inbox key.")
                 else:
+                    icloud = path.endswith("/icloud/check")
                     email = str(body["email"]).strip()
                     password = str(body["password"]).replace(" ", "")
-                    ok, message = check_gmail(email, password) if email and password else (False, "Enter your Gmail address and app password.")
+                    if not (email and password):
+                        ok, message = False, f"Enter your {'iCloud' if icloud else 'Gmail'} address and app password."
+                    else:
+                        ok, message = (check_icloud if icloud else check_gmail)(email, password)
             except (KeyError, TypeError):
                 raise AppError(400, "Bad request.")
             return self.send_json(200, {"ok": ok, "message": message})

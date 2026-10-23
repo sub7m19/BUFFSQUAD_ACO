@@ -265,7 +265,8 @@
 
           <div class="segment" role="group" aria-label="How to connect your inbox" data-filter="inboxMethod">
             <button type="button" aria-pressed="true" data-value="aycd">AYCD Inbox <b class="rec">Recommended</b></button>
-            <button type="button" aria-pressed="false" data-value="gmail">Gmail IMAP</button>
+            <button type="button" aria-pressed="false" data-value="gmail">Gmail</button>
+            <button type="button" aria-pressed="false" data-value="icloud">iCloud</button>
           </div>
 
           <form class="inbox-form" id="inbox-aycd-form">
@@ -292,6 +293,23 @@
             </label>
             <p class="field-hint">Gmail needs an app password, not your normal password. Create one in your Google Account under Security, 2-Step Verification, App passwords.</p>
             <p class="field-error" id="gmail-error" role="alert" hidden></p>
+            <div class="modal-actions">
+              <button class="button ghost" type="button" data-inbox-clear>Remove</button>
+              <button class="button primary" type="submit">Connect</button>
+            </div>
+          </form>
+
+          <form class="inbox-form" id="inbox-icloud-form" hidden>
+            <label>
+              iCloud email
+              <input name="email" type="email" required autocomplete="off" placeholder="you@icloud.com">
+            </label>
+            <label>
+              App-specific password
+              <input name="password" type="password" required autocomplete="new-password" spellcheck="false" placeholder="xxxx-xxxx-xxxx-xxxx">
+            </label>
+            <p class="field-hint">iCloud needs an app-specific password, not your Apple Account password. Create one at account.apple.com under Sign-In and Security, App-Specific Passwords. Two-factor authentication has to be on.</p>
+            <p class="field-error" id="icloud-error" role="alert" hidden></p>
             <div class="modal-actions">
               <button class="button ghost" type="button" data-inbox-clear>Remove</button>
               <button class="button primary" type="submit">Connect</button>
