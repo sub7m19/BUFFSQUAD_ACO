@@ -184,6 +184,23 @@
             <span>Add the channel your checkout bots post success messages in.</span>
           </div>
         </section>
+
+        <section class="panel admin-form" aria-labelledby="feed-title">
+          <div class="panel-head">
+            <h2 class="label" id="feed-title">Success feed</h2>
+          </div>
+          <p class="field-hint">The bot reposts each checkout here for the whole server to see: the item, the store, the profile name and a tag of the member. Order numbers, prices, proxies and the rest of the webhook stay out.</p>
+          <ul class="checkout-list" id="feed-row" hidden></ul>
+          <form id="feed-form" class="channel-form">
+            <label>
+              Channel ID
+              <input id="feed-id" name="id" required inputmode="numeric" autocomplete="off" placeholder="1287654321098765432">
+            </label>
+            <button class="button primary" type="submit"><svg class="icon"><use href="#i-plus"/></svg><span id="feed-submit">Set feed channel</span></button>
+          </form>
+          <p class="field-error" id="feed-error" hidden></p>
+          <p class="field-hint">Use a channel of its own, not one of the checkout channels above. The bot needs View Channel, Send Messages and Embed Links there.</p>
+        </section>
       </section>
 
       <!-- Members -->

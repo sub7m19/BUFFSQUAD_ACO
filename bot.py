@@ -4,6 +4,10 @@ Watches the checkout channel(s) for success webhooks from the AIO bots, logs eac
 checkout against the member whose profile it ran on (so it shows up on their
 dashboard and the admin panel), and DMs that member.
 
+It reposts each checkout to the success feed channel, if one is set, with just the
+item, store, profile name and a tag of the member: none of the order number,
+proxies or other details the AIO bots put in their webhooks.
+
 It also sends DMs the admin panel queues (an unmatched checkout assigned to a
 member, or "Resend DM"), and catches up on messages posted while it was offline.
 
@@ -104,6 +108,55 @@ async def send_pending_dms() -> None:
         log.info("DM %s for checkout #%s%s", status, c["id"], f": {error}" if error else "")
 
 
+def feed_embed(c) -> discord.Embed:
+    # Only what's safe for everyone in the server to see. No order number, price, proxy, email or address.
+    embed = discord.Embed(title="Successful checkout", description=c["product"] or "New order", color=0x23CED9)
+    embed.add_field(name="Store", value=c["retailer"] or "—")
+    if c["qty"] > 1:
+        embed.add_field(name="Qty", value=str(c["qty"]))
+    embed.add_field(name="Profile", value=c["profile_name"] or "—")
+    embed.set_footer(text="BUFFSQUAD ACO")
+    return embed
+
+
+async def send_pending_feed() -> None:
+    with db.transaction() as conn:
+        feed = db.feed_channel(conn)
+        if not feed:
+            # The feed was turned off: drop what was waiting instead of posting it if it's turned on again.
+            conn.execute("UPDATE checkouts SET feed_status = 'none' WHERE feed_status = 'pending'")
+            return
+        pending = conn.execute(
+            """SELECT checkouts.*, users.discord_id FROM checkouts LEFT JOIN users ON users.id = checkouts.user_id
+               WHERE checkouts.feed_status = 'pending' ORDER BY checkouts.id LIMIT 20""").fetchall()
+    channel = client.get_channel(int(feed["id"]))
+    if not pending or channel is None:
+        return
+    for c in pending:
+        member = c["discord_id"] if c["discord_id"] and c["discord_id"].isdigit() else None
+        status = "sent"
+        try:
+            await channel.send(content=f"<@{member}> checked out!" if member else "Checkout! (profile not linked to a member yet)",
+                               embed=feed_embed(c), allowed_mentions=discord.AllowedMentions(users=True, everyone=False, roles=False))
+        except discord.HTTPException as e:
+            status = "failed"
+            log.warning("Feed post failed for checkout #%s: %s", c["id"], e)
+        with db.transaction() as conn:
+            conn.execute("UPDATE checkouts SET feed_status = ? WHERE id = ?", (status, c["id"]))
+
+
+def feed_status(channel_id: int) -> dict:
+    """What the admin panel shows next to the feed channel: its name, and whether the bot can post there."""
+    channel = client.get_channel(channel_id)
+    if channel is None:
+        return {"ok": False, "problem": "The bot isn't in this channel's server, or the ID is wrong"}
+    perms = channel.permissions_for(channel.guild.me)
+    if not (perms.view_channel and perms.send_messages and perms.embed_links):
+        return {"ok": False, "name": channel.name, "guild": channel.guild.name,
+                "problem": "The bot needs View Channel, Send Messages and Embed Links here"}
+    return {"ok": True, "name": channel.name, "guild": channel.guild.name}
+
+
 def channel_status(channel_id: int) -> dict:
     """What the admin panel shows next to a channel: its name, and whether the bot can read it."""
     channel = client.get_channel(channel_id)
@@ -153,10 +206,12 @@ async def refresh_channels() -> None:
         await catch_up(added)
     with db.transaction() as conn:
         db.kv_set(conn, "bot_channels", {str(c): channel_status(c) for c in wanted})
+        feed = db.feed_channel(conn)
+        db.kv_set(conn, "bot_feed_channel", {feed["id"]: feed_status(int(feed["id"]))} if feed else {})
 
 
 async def heartbeat() -> None:
-    """Lets the admin panel show the bot as online, follows channel changes, and sends queued DMs."""
+    """Lets the admin panel show the bot as online, follows channel changes, and sends queued DMs and feed posts."""
     while not client.is_closed():
         try:
             await refresh_channels()
@@ -164,6 +219,7 @@ async def heartbeat() -> None:
                 db.kv_set(conn, "bot_status", {"at": db.now() * 1000, "name": str(client.user), "channels": len(watched)})
                 conn.execute("DELETE FROM kv WHERE key = 'bot_error'")  # signed in fine, so any old sign-in error is gone
             await send_pending_dms()
+            await send_pending_feed()
         except Exception:  # Keep the loop alive; the next tick retries.
             log.exception("Heartbeat failed")
         await asyncio.sleep(POLL_SECONDS)
@@ -181,6 +237,7 @@ async def on_ready():
 async def on_message(message: discord.Message):
     if handle(message):
         await send_pending_dms()
+        await send_pending_feed()
 
 
 def main(own_logging: bool = True) -> None:

@@ -549,6 +549,15 @@ CHECKOUT_SELECT = """SELECT checkouts.*, COALESCE(NULLIF(users.display_name, '')
                      FROM checkouts LEFT JOIN users ON users.id = checkouts.user_id"""
 
 
+def channel_id_from(body: dict) -> str:
+    """A Discord channel ID from a form. A pasted channel link (discord.com/channels/<server>/<channel>) works too."""
+    raw = str(body.get("id") or "").strip().rstrip("/")
+    channel_id = raw.rsplit("/", 1)[-1]
+    if not re.fullmatch(r"\d{17,20}", channel_id):
+        raise AppError(400, "That isn't a channel ID. In Discord, right-click the channel and pick Copy Channel ID.")
+    return channel_id
+
+
 def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
     query = parse_qs(h.url.query)
     q = lambda name: (query.get(name) or [""])[0]  # noqa: E731
@@ -808,18 +817,18 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         counts = {r["channel_id"]: r["n"] for r in conn.execute(
             "SELECT channel_id, COUNT(*) AS n FROM checkouts WHERE channel_id IS NOT NULL GROUP BY channel_id")}
         channels = [{**c, "checkouts": counts.get(c["id"], 0)} for c in db.checkout_channels(conn)]
-        return h.send_json(200, {"channels": channels, "status": db.kv_get(conn, "bot_channels", {}), "bot": db.kv_get(conn, "bot_status")})
+        return h.send_json(200, {"channels": channels, "status": db.kv_get(conn, "bot_channels", {}), "bot": db.kv_get(conn, "bot_status"),
+                                 "feed": db.feed_channel(conn), "feedStatus": db.kv_get(conn, "bot_feed_channel", {})})
 
     if (method, path) == ("POST", "/api/admin/channels"):
         body = h.body()
-        # Accept a pasted channel link (discord.com/channels/<server>/<channel>) as well as a bare ID.
-        raw = str(body.get("id") or "").strip().rstrip("/")
-        channel_id = raw.rsplit("/", 1)[-1]
-        if not re.fullmatch(r"\d{17,20}", channel_id):
-            raise AppError(400, "That isn't a channel ID. In Discord, right-click the channel and pick Copy Channel ID.")
+        channel_id = channel_id_from(body)
         channels = db.checkout_channels(conn)
         if any(c["id"] == channel_id for c in channels):
             raise AppError(400, "That channel is already on the list.")
+        feed = db.feed_channel(conn)
+        if feed and feed["id"] == channel_id:
+            raise AppError(400, "That's the success feed channel. Checkout webhooks need a channel of their own.")
         label = str(body.get("label") or "").strip()[:60]
         channels.append({"id": channel_id, "label": label, "addedAt": db.now() * 1000, "addedBy": admin["username"]})
         db.kv_set(conn, "checkout_channels", channels)
@@ -834,6 +843,19 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             raise AppError(404, "That channel isn't on the list.")
         db.kv_set(conn, "checkout_channels", kept)
         db.audit(conn, admin["id"], "channel.remove", m_channel.group(1))
+        return h.send_json(200, {"ok": True})
+
+    if (method, path) == ("PUT", "/api/admin/feed-channel"):
+        channel_id = channel_id_from(h.body())
+        if any(c["id"] == channel_id for c in db.checkout_channels(conn)):
+            raise AppError(400, "The bot reads checkout webhooks from that channel. Pick a different one for the feed.")
+        db.kv_set(conn, "feed_channel", {"id": channel_id, "addedAt": db.now() * 1000, "addedBy": admin["username"]})
+        db.audit(conn, admin["id"], "feed.set", channel_id)
+        return h.send_json(200, {"ok": True})
+
+    if (method, path) == ("DELETE", "/api/admin/feed-channel"):
+        conn.execute("DELETE FROM kv WHERE key IN ('feed_channel', 'bot_feed_channel')")
+        db.audit(conn, admin["id"], "feed.clear", "")
         return h.send_json(200, {"ok": True})
 
     if (method, path) == ("GET", "/api/admin/audit"):

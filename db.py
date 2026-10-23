@@ -74,10 +74,12 @@ CREATE TABLE IF NOT EXISTS checkouts (
   channel_id TEXT,
   created_at INTEGER NOT NULL,
   dm_status TEXT NOT NULL DEFAULT 'none',    -- none | pending | sent | failed | off
-  dm_error TEXT NOT NULL DEFAULT ''
+  dm_error TEXT NOT NULL DEFAULT '',
+  feed_status TEXT NOT NULL DEFAULT 'none'   -- none | pending | sent | failed: the post in the success feed channel
 );
 CREATE INDEX IF NOT EXISTS checkouts_user ON checkouts(user_id, created_at);
 CREATE INDEX IF NOT EXISTS checkouts_dm ON checkouts(dm_status);
+CREATE INDEX IF NOT EXISTS checkouts_feed ON checkouts(feed_status);
 CREATE TABLE IF NOT EXISTS kv (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -119,7 +121,8 @@ def init() -> None:
         conn.executescript(SCHEMA)
         # Columns added after the first release; CREATE TABLE IF NOT EXISTS skips old tables.
         have = {r["name"] for r in conn.execute("PRAGMA table_info(checkouts)")}
-        for column, decl in (("sku", "TEXT NOT NULL DEFAULT ''"), ("fee_source", "TEXT NOT NULL DEFAULT ''")):
+        for column, decl in (("sku", "TEXT NOT NULL DEFAULT ''"), ("fee_source", "TEXT NOT NULL DEFAULT ''"),
+                             ("feed_status", "TEXT NOT NULL DEFAULT 'none'")):
             if column not in have:
                 conn.execute(f"ALTER TABLE checkouts ADD COLUMN {column} {decl}")
         # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
@@ -239,6 +242,13 @@ def checkout_channels(conn) -> list[dict]:
         channels = [{"id": str(c), "label": "", "addedAt": now() * 1000, "addedBy": ".env"} for c in sorted(config.CHECKOUT_CHANNEL_IDS)]
         kv_set(conn, "checkout_channels", channels)
     return channels
+
+
+def feed_channel(conn) -> dict | None:
+    """The success feed channel: the bot reposts each checkout there with just the item,
+    store, profile name and a tag, leaving out the order number, proxies and the rest
+    of the AIO bot's webhook. Set on the admin panel's Channels tab."""
+    return kv_get(conn, "feed_channel")
 
 
 def audit(conn, user_id, action: str, detail: str = "") -> None:
@@ -421,16 +431,18 @@ def record_checkout(conn, parsed: dict, message_key: str | None = None, channel_
         fee, fee_source = compute_fee(conn, retailer, product, sku, price, qty)
     else:
         fee_source = "manual"
+    # Only checkouts the bot saw in a checkout channel go to the feed, not ones added by hand.
+    feed = "pending" if hit and message_key and feed_channel(conn) else "none"
     dm = "none"
     if hit and user_id and notify:
         dm = "pending" if wants_checkout_dm(conn, user_id) else "off"
     cur = conn.execute(
         """INSERT INTO checkouts (user_id, profile_name, product, retailer, order_no, size, sku, qty, price, fee,
-             fee_source, result, source, message_key, channel_id, created_at, dm_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             fee_source, result, source, message_key, channel_id, created_at, dm_status, feed_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (user_id, profile_name, product, retailer, parsed.get("order") or "", parsed.get("size") or "", sku,
          qty, price, float(fee), fee_source, "hit" if hit else "miss", source or parsed.get("source") or "",
-         message_key, channel_id, now(), dm))
+         message_key, channel_id, now(), dm, feed))
     return cur.lastrowid
 
 

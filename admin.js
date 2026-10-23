@@ -261,7 +261,7 @@ document.querySelector('[data-filter="view"]').addEventListener("click", (e) => 
 // Channels
 
 async function loadChannels() {
-  const { channels, status, bot } = await api("GET", "/api/admin/channels");
+  const { channels, status, bot, feed, feedStatus } = await api("GET", "/api/admin/channels");
   const online = bot && Date.now() - bot.at < 60 * 1000;
   let problems = 0;
   byId("channel-list").innerHTML = channels.map((c) => {
@@ -287,7 +287,63 @@ async function loadChannels() {
   // Badge: a count of channels the bot can't read, or "!" when there are none at all.
   byId("nav-channels").textContent = problems || (channels.length ? "" : "!");
   byId("nav-channels").hidden = !(problems || !channels.length);
+  renderFeed(feed, feedStatus[feed?.id], online);
 }
+
+function renderFeed(feed, st, online) {
+  byId("feed-row").hidden = !feed;
+  byId("feed-submit").textContent = feed ? "Change feed channel" : "Set feed channel";
+  if (!feed) return;
+  const state = !online || !st ? ["paused", online ? "Checking…" : "Waiting for bot"] : st.ok ? ["paid", "Posting"] : ["due", "Bot can't post"];
+  const where = st && st.name ? `#${escape(st.name)}${st.guild ? ` in ${escape(st.guild)}` : ""}` : "";
+  byId("feed-row").innerHTML = `
+    <li class="channel-row">
+      <span class="avatar">#</span>
+      <div class="checkout-info">
+        <strong>${escape(st && st.name ? "#" + st.name : "Success feed")}</strong>
+        <span><span class="mono">${escape(feed.id)}</span>${where ? ` · ${where}` : ""}</span>
+        <span>${online && st && !st.ok ? `<b class="unmatched">${escape(st.problem)}</b>` : `Set by ${escape(feed.addedBy)} ${ago(feed.addedAt)}`}</span>
+      </div>
+      <span class="status ${state[0]}">${state[1]}</span>
+      <button class="icon-button danger" type="button" data-remove-feed aria-label="Turn off the success feed" title="Turn off the feed">${icon("trash")}</button>
+    </li>`;
+}
+
+byId("feed-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const error = byId("feed-error");
+  error.hidden = true;
+  try {
+    await api("PUT", "/api/admin/feed-channel", { id: byId("feed-id").value });
+    e.target.reset();
+    notify("Feed channel set. New checkouts post there from now on.");
+    loadChannels();
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+  }
+});
+
+byId("feed-form").addEventListener("input", () => (byId("feed-error").hidden = true));
+
+// Two clicks to turn off, like removing a channel.
+byId("feed-row").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-remove-feed]");
+  if (!btn) return;
+  if (!btn.classList.contains("confirm")) {
+    btn.classList.add("confirm");
+    btn.title = "Click again to turn off the feed";
+    setTimeout(() => btn.isConnected && btn.classList.remove("confirm"), 4000);
+    return;
+  }
+  try {
+    await api("DELETE", "/api/admin/feed-channel");
+    notify("Success feed turned off.");
+    loadChannels();
+  } catch (err) {
+    notify(err.message);
+  }
+});
 
 byId("channel-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -895,6 +951,7 @@ const ACTIONS = {
   "checkout.edit": "Edited a checkout", "checkout.delete": "Deleted a checkout", "settings.fees": "Changed fees", "settings.rules": "Changed fee rules", "checkout.refee": "Applied fee rules",
   "member.disable": "Turned off a member", "member.enable": "Turned on a member",
   "channel.add": "Added a checkout channel", "channel.remove": "Removed a checkout channel",
+  "feed.set": "Set the success feed channel", "feed.clear": "Turned off the success feed",
   "checkout.bulk_delete": "Deleted checkouts",
 };
 

@@ -362,6 +362,43 @@ class ServerTest(ServerCase):
         member = self.client().login("carl")
         self.assertEqual(member.request("POST", "/api/admin/channels", {"id": "1287654321098765433"})[0], 403)
 
+    def test_success_feed(self):
+        admin = self.client().login("chief", admin=True)
+        self.assertEqual(admin.request("POST", "/api/admin/channels", {"id": "1311111111111111111"})[0], 200)
+        # The feed can't be a channel the bot reads webhooks from, or it would read its own posts.
+        self.assertEqual(admin.request("PUT", "/api/admin/feed-channel", {"id": "1311111111111111111"})[0], 400)
+        self.assertEqual(admin.request("PUT", "/api/admin/feed-channel", {"id": "nope"})[0], 400)
+        self.assertEqual(admin.request("PUT", "/api/admin/feed-channel", {"id": "https://discord.com/channels/1/1322222222222222222"})[0], 200)
+        self.assertEqual(admin.request("POST", "/api/admin/channels", {"id": "1322222222222222222"})[0], 400)
+        _, data, _ = admin.request("GET", "/api/admin/channels")
+        self.assertEqual(data["feed"]["id"], "1322222222222222222")
+
+        hit = {"status": "success", "product": "Feed Box", "retailer": "Target", "profile": "Nobody", "order": "TGT-999", "price": 120}
+        with db.transaction() as conn:
+            from_bot = db.record_checkout(conn, hit, message_key="feed1", user_id=None)
+            by_hand = db.record_checkout(conn, hit, user_id=None, source="manual")
+            miss = db.record_checkout(conn, {**hit, "status": "failed"}, message_key="feed2", user_id=None)
+            status = lambda i: conn.execute("SELECT feed_status FROM checkouts WHERE id = ?", (i,)).fetchone()[0]  # noqa: E731
+            self.assertEqual((status(from_bot), status(by_hand), status(miss)), ("pending", "none", "none"))
+            row = conn.execute("SELECT * FROM checkouts WHERE id = ?", (from_bot,)).fetchone()
+
+        import bot
+        embed = bot.feed_embed(row)
+        shown = json.dumps(embed.to_dict())
+        self.assertIn("Feed Box", shown)
+        self.assertIn("Nobody", shown)
+        self.assertNotIn("TGT-999", shown)
+        self.assertNotIn("120", shown)
+
+        member = self.client().login("carl")
+        self.assertEqual(member.request("PUT", "/api/admin/feed-channel", {"id": "1333333333333333333"})[0], 403)
+        self.assertEqual(admin.request("DELETE", "/api/admin/feed-channel")[0], 200)
+        with db.transaction() as conn:
+            self.assertIsNone(db.feed_channel(conn))
+            self.assertEqual(db.record_checkout(conn, hit, message_key="feed3", user_id=None) and
+                             conn.execute("SELECT feed_status FROM checkouts WHERE message_key = 'feed3'").fetchone()[0], "none")
+        self.assertEqual(admin.request("DELETE", "/api/admin/channels/1311111111111111111")[0], 200)
+
 
 if __name__ == "__main__":
     unittest.main()
