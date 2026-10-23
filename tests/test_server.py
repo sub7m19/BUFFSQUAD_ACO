@@ -400,5 +400,27 @@ class ServerTest(ServerCase):
         self.assertEqual(admin.request("DELETE", "/api/admin/channels/1311111111111111111")[0], 200)
 
 
+class UpgradeTest(unittest.TestCase):
+    def test_init_upgrades_an_old_database(self):
+        # A checkouts table from before sku, fee_source and feed_status, like a live database the code has moved past.
+        saved = config.DB_PATH
+        config.DB_PATH = Path(TMP) / "old.db"
+        config.DB_PATH.unlink(missing_ok=True)
+        try:
+            with db.transaction() as conn:
+                conn.execute("""CREATE TABLE checkouts (id INTEGER PRIMARY KEY, user_id INTEGER, profile_name TEXT NOT NULL DEFAULT '',
+                  product TEXT NOT NULL DEFAULT '', retailer TEXT NOT NULL DEFAULT '', order_no TEXT NOT NULL DEFAULT '',
+                  size TEXT NOT NULL DEFAULT '', qty INTEGER NOT NULL DEFAULT 1, price REAL NOT NULL DEFAULT 0,
+                  fee REAL NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0, stage TEXT NOT NULL DEFAULT 'confirmed',
+                  result TEXT NOT NULL DEFAULT 'hit', source TEXT NOT NULL DEFAULT '', message_key TEXT UNIQUE, channel_id TEXT,
+                  created_at INTEGER NOT NULL, dm_status TEXT NOT NULL DEFAULT 'none', dm_error TEXT NOT NULL DEFAULT '')""")
+            db.init()
+            with db.transaction() as conn:
+                have = {r["name"] for r in conn.execute("PRAGMA table_info(checkouts)")}
+            self.assertTrue({"sku", "fee_source", "feed_status"} <= have)
+        finally:
+            config.DB_PATH = saved
+
+
 if __name__ == "__main__":
     unittest.main()

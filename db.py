@@ -79,7 +79,6 @@ CREATE TABLE IF NOT EXISTS checkouts (
 );
 CREATE INDEX IF NOT EXISTS checkouts_user ON checkouts(user_id, created_at);
 CREATE INDEX IF NOT EXISTS checkouts_dm ON checkouts(dm_status);
-CREATE INDEX IF NOT EXISTS checkouts_feed ON checkouts(feed_status);
 CREATE TABLE IF NOT EXISTS kv (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -125,6 +124,8 @@ def init() -> None:
                              ("feed_status", "TEXT NOT NULL DEFAULT 'none'")):
             if column not in have:
                 conn.execute(f"ALTER TABLE checkouts ADD COLUMN {column} {decl}")
+        # After the columns above, so an old database has feed_status before it's indexed.
+        conn.execute("CREATE INDEX IF NOT EXISTS checkouts_feed ON checkouts(feed_status)")
         # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
         # Dev sign-ins (dev-*) pick their own flag and are left alone.
         for row in conn.execute("SELECT id, discord_id, is_admin FROM users WHERE discord_id NOT LIKE 'dev-%'").fetchall():
