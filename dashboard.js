@@ -232,7 +232,7 @@ function setupSteps() {
       done: state.discord,
       title: "Join the Discord",
       text: "Checkout alerts and billing",
-      action: `<a class="button ghost small" href="https://discord.gg/fgA3vs4r" target="_blank" rel="noreferrer" data-discord>Join</a>`,
+      action: `<a class="button ghost small" href="https://discord.gg/7SGtgcEq" target="_blank" rel="noreferrer" data-discord>Join</a>`,
     },
   ];
 }

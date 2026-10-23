@@ -109,6 +109,9 @@ def safe_next(value: str) -> str:
     return value if value.startswith("/") and not value.startswith("//") and "\\" not in value else "/dashboard"
 
 
+NEW_TAB = ' target="_blank" rel="noreferrer"'
+
+
 class AppError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -159,12 +162,19 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_page(self, status: int, message: str) -> None:
-        """A plain page for sign-in problems, which happen in a full page load."""
+    def send_page(self, status: int, message: str, buttons: list[tuple[str, str, bool]] | None = None) -> None:
+        """A plain page for sign-in problems, which happen in a full page load.
+        buttons: (label, link, opens in a new tab); defaults to a link back to the splash page."""
+        buttons = buttons or [("Back to BUFFSQUAD", "/index.html", False)]
+        base = "display:inline-block;margin:6px;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:800;"
+        looks = ["background:#23ced9;color:#081424", "border:1px solid rgba(255,255,255,.3);color:#fff"]
+        links = "".join(
+            f'<a href="{html.escape(href)}"{NEW_TAB if new_tab else ""} style="{base}{looks[min(i, 1)]}">{html.escape(label)}</a>'
+            for i, (label, href, new_tab) in enumerate(buttons))
         body = (f'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
                 f'<title>BUFFSQUAD ACO</title><body style="margin:0;display:grid;place-items:center;min-height:100vh;'
                 f'background:#081424;color:#fff;font:600 16px Inter,Arial,sans-serif;text-align:center;padding:16px">'
-                f'<div><p>{html.escape(message)}</p><p><a href="/index.html" style="color:#23ced9">Back to BUFFSQUAD</a></p></div>').encode()
+                f'<div><p style="max-width:34rem">{html.escape(message)}</p><p>{links}</p></div>').encode()
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -341,7 +351,13 @@ class Handler(SimpleHTTPRequestHandler):
             me = discord_request(f"{DISCORD_API}/users/@me", token=token["access_token"])
             discord_id = str(me["id"])
             if discord_id not in config.ADMIN_DISCORD_IDS and not in_guild(discord_id):
-                raise AppError(403, "Join the BUFFSQUAD Discord first, then sign in again.")
+                # Invite opens in a new tab; this page stays open to sign in again after joining.
+                self.send_page(403, "You need to be in the BUFFSQUAD Discord to use the dashboard. "
+                                    "Join the server, then come back to this tab and sign in.", [
+                    ("Join Discord", config.DISCORD_INVITE_URL, True),
+                    ("I've joined, sign in", "/auth/discord/login?" + urlencode({"next": safe_next(next_path)}), False),
+                ])
+                return
             avatar = f"https://cdn.discordapp.com/avatars/{discord_id}/{me['avatar']}.png?size=64" if me.get("avatar") else None
             self.sign_in(conn, discord_id, me.get("username", ""), me.get("global_name") or me.get("username", ""),
                          avatar, safe_next(next_path))

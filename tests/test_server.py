@@ -216,6 +216,27 @@ class ServerTest(ServerCase):
         finally:
             del os.environ["BACKUP_DIR"]
 
+    def test_sign_in_before_joining_the_server(self):
+        """Someone not in the Discord server gets the invite (new tab) and a way to sign in again."""
+        saved = (config.DISCORD_CLIENT_ID, config.DISCORD_CLIENT_SECRET, main.discord_request, main.in_guild)
+        config.DISCORD_CLIENT_ID, config.DISCORD_CLIENT_SECRET = "123", "secret"
+        main.discord_request = lambda url, **kw: {"access_token": "t"} if "token" in url else {"id": "999", "username": "newbie"}
+        main.in_guild = lambda discord_id: False
+        try:
+            c = self.client()
+            status, _, headers = c.request("GET", "/auth/discord/login?next=/dashboard")
+            self.assertEqual(status, 302)
+            state = next(v for k, v in [x.split("=", 1) for x in headers["Location"].split("?", 1)[1].split("&")] if k == "state")
+            oauth = headers["Set-Cookie"].split(";")[0]
+            status, page, _ = c.request("GET", f"/auth/discord/callback?code=abc&state={state}", headers={"Cookie": oauth})
+            self.assertEqual(status, 403)
+            self.assertIn(config.DISCORD_INVITE_URL.encode(), page)
+            self.assertIn(b'target="_blank"', page)
+            self.assertIn(b"/auth/discord/login?next=%2Fdashboard", page)
+            self.assertEqual(c.cookie, "")  # not signed in
+        finally:
+            config.DISCORD_CLIENT_ID, config.DISCORD_CLIENT_SECRET, main.discord_request, main.in_guild = saved
+
     def test_checkout_channels(self):
         admin = self.client().login("chief", admin=True)
         status, data, _ = admin.request("GET", "/api/admin/channels")
