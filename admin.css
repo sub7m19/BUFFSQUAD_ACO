@@ -339,6 +339,20 @@
   max-height: calc(100dvh - 48px);
   padding: 0;
   overflow: hidden;
+  /* Frosted blue glass: the page shows through, blurred enough to keep text readable */
+  border-color: rgba(35, 206, 217, 0.38);
+  background: linear-gradient(160deg, rgba(32, 110, 165, 0.45), rgba(10, 42, 78, 0.6));
+  backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 0 60px rgba(35, 206, 217, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.member-modal::backdrop {
+  background: rgba(2, 10, 20, 0.45);
+}
+
+.member-modal .m-card,
+.member-modal .m-stats .tile:not(.due) {
+  background: rgba(4, 18, 34, 0.38);
 }
 
 .member-detail {
