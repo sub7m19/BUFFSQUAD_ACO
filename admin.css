@@ -166,6 +166,8 @@
 }
 
 .fee-input {
+  /* Same text size as the other admin form boxes, which inherit it from their label */
+  font-size: 0.84rem;
   display: grid;
   grid-template-columns: minmax(70px, 1fr) minmax(0, 1.4fr);
   gap: 6px;
