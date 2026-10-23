@@ -149,18 +149,29 @@ class Handler(SimpleHTTPRequestHandler):
         c = self.cookies().get(name)
         return c.value if c else ""
 
-    def set_cookie(self, name: str, value: str, max_age: int) -> None:
+    @staticmethod
+    def cookie_header(name: str, value: str, max_age: int) -> tuple[str, str]:
         secure = "; Secure" if config.PUBLIC_URL.startswith("https://") else ""
-        self.send_header("Set-Cookie", f"{name}={value}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax{secure}")
+        return "Set-Cookie", f"{name}={value}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax{secure}"
+
+    # API and sign-in responses are held until the request's database changes are
+    # committed (see dispatch). Sent any earlier, the browser's next request could
+    # arrive before the commit: a new session not found yet, a save not visible yet.
+    pending = None
+
+    def respond(self, status: int, headers: list[tuple[str, str]], body: bytes = b"") -> None:
+        if self.pending is not None:
+            self.pending.append((status, headers, body))
+            return
+        self.send_response(status)
+        for name, value in headers + [("Content-Length", str(len(body)))]:
+            self.send_header(name, value)
+        self.end_headers()
+        if body and self.command != "HEAD":
+            self.wfile.write(body)
 
     def send_json(self, status: int, data) -> None:
-        body = json.dumps(data).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        self.respond(status, [("Content-Type", "application/json"), ("Cache-Control", "no-store")], json.dumps(data).encode())
 
     def send_page(self, status: int, message: str, buttons: list[tuple[str, str, bool]] | None = None) -> None:
         """A plain page for sign-in problems, which happen in a full page load.
@@ -175,31 +186,15 @@ class Handler(SimpleHTTPRequestHandler):
                 f'<title>BUFFSQUAD ACO</title><body style="margin:0;display:grid;place-items:center;min-height:100vh;'
                 f'background:#081424;color:#fff;font:600 16px Inter,Arial,sans-serif;text-align:center;padding:16px">'
                 f'<div><p style="max-width:34rem">{html.escape(message)}</p><p>{links}</p></div>').encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        self.respond(status, [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")], body)
 
     def send_file(self, filename: str, text: str, content_type: str) -> None:
-        body = text.encode()
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        self.respond(200, [("Content-Type", content_type), ("Content-Disposition", f'attachment; filename="{filename}"'),
+                           ("Cache-Control", "no-store")], text.encode())
 
     def redirect(self, location: str, cookies: list[tuple[str, str, int]] = ()) -> None:
-        self.send_response(302)
-        self.send_header("Location", location)
-        self.send_header("Cache-Control", "no-store")
-        for name, value, age in cookies:
-            self.set_cookie(name, value, age)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        self.respond(302, [("Location", location), ("Cache-Control", "no-store")]
+                     + [self.cookie_header(name, value, age) for name, value, age in cookies])
 
     def body(self, limit: int = 4096):
         length = int(self.headers.get("Content-Length") or 0)
@@ -247,24 +242,31 @@ class Handler(SimpleHTTPRequestHandler):
     def dispatch(self, method: str) -> None:
         path = self.url.path
         try:
-            if path.startswith("/api/"):
-                if method not in ("GET", "HEAD"):
+            if path.startswith(("/api/", "/auth/")):
+                if path.startswith("/api/") and method not in ("GET", "HEAD"):
                     self.check_same_origin()
+                self.pending = []
                 with db.transaction() as conn:
-                    self.api(conn, method, path)
-            elif path.startswith("/auth/"):
-                with db.transaction() as conn:
-                    self.auth(conn, path)
+                    if path.startswith("/api/"):
+                        self.api(conn, method, path)
+                    else:
+                        self.auth(conn, path)
+                # Committed: now it's safe to answer.
+                held, self.pending = self.pending, None
+                for status, headers, body in held:
+                    self.respond(status, headers, body)
             elif method in ("GET", "HEAD"):
                 self.static(method)
             else:
                 self.send_error(405)
         except AppError as e:
+            self.pending = None  # rolled back; drop anything held
             if path.startswith("/auth/"):
                 self.send_page(e.status, e.message)
             else:
                 self.send_json(e.status, {"ok": False, "message": e.message})
         except (HTTPError, URLError, OSError) as e:
+            self.pending = None
             self.log_error("Upstream error: %s", e)
             self.send_json(502, {"ok": False, "message": "Couldn't reach Discord. Try again in a moment."})
 

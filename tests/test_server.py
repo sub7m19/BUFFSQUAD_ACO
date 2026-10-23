@@ -237,6 +237,31 @@ class ServerTest(ServerCase):
         finally:
             config.DISCORD_CLIENT_ID, config.DISCORD_CLIENT_SECRET, main.discord_request, main.in_guild = saved
 
+    def test_reply_waits_for_the_save(self):
+        """The server answers only after saving, so the next request always sees the change.
+        Every save is slowed down here; answering before the save would fail this every time."""
+        import contextlib
+        import time
+
+        real = db.transaction
+
+        @contextlib.contextmanager
+        def slow_transaction():
+            with real() as conn:
+                yield conn
+                time.sleep(0.3)  # the commit happens after this
+
+        db.transaction = slow_transaction
+        try:
+            fast = self.client().login("speedy")  # new session saved during sign-in
+            status, me, _ = fast.request("GET", "/api/me")
+            self.assertEqual(status, 200)
+            fast.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": []})
+            _, me, _ = fast.request("GET", "/api/me")
+            self.assertEqual(me["settings"]["profiles"], [])
+        finally:
+            db.transaction = real
+
     def test_checkout_channels(self):
         admin = self.client().login("chief", admin=True)
         status, data, _ = admin.request("GET", "/api/admin/channels")

@@ -1,9 +1,11 @@
 <#
   BUFFSQUAD ACO: runs every minute as the "BUFFSQUAD Deploy" scheduled task.
 
-  - New commit on GitHub's main branch: pull it, install packages, run the tests.
-    Tests pass: restart the app and wait for /api/health. Tests fail, or the app
-    doesn't come back: go back to the previous version and skip that commit.
+  - New commit on GitHub's main branch: test it first in a separate folder
+    (C:\buffsquad\stage), so the live site never shows an untested version.
+    Tests pass: switch the live folder to it, restart, and wait for /api/health.
+    Tests fail, or the app doesn't come back: stay on (or go back to) the previous
+    version and skip that commit until a newer one is pushed.
   - No new commit: make sure the app is up (and the bot checking in), and start
     it again if it isn't.
 
@@ -17,6 +19,7 @@ param([switch]$Restart)
 $ErrorActionPreference = "Continue"
 $Root = "C:\buffsquad"
 $App = "$Root\app"
+$Stage = "$Root\stage"
 $Py = "$Root\venv\Scripts\python.exe"
 $Git = "C:\Program Files\Git\cmd\git.exe"
 $LogFile = "$Root\logs\deploy.log"
@@ -71,22 +74,36 @@ try {
   $skip = if (Test-Path $SkipFile) { (Get-Content $SkipFile -Raw).Trim() } else { "" }
 
   if ($latest -and $latest -ne $current -and $latest -ne $skip) {
-    Log "Deploying $($latest.Substring(0, 7)) (was $($current.Substring(0, 7)))"
-    & $Git -C $App reset --hard --quiet $latest
-    & $Py -m pip install --quiet --disable-pip-version-check -r "$App\requirements.txt" *> "$Root\logs\last-pip.log"
+    Log "Testing $($latest.Substring(0, 7)) (live: $($current.Substring(0, 7)))"
+
+    # A second checkout of the same repository, used only for testing.
+    if (-not (Test-Path "$Stage\.git")) {
+      if (-not (& $Git config --system --get-all safe.directory | Where-Object { $_ -eq "C:/buffsquad/stage" })) {
+        & $Git config --system --add safe.directory "C:/buffsquad/stage"
+      }
+      & $Git -C $App worktree prune
+      & $Git -C $App worktree add --detach --quiet $Stage $latest
+    }
+    & $Git -C $Stage checkout --detach --quiet --force $latest
+    & $Git -C $Stage clean -fdq
+    & $Py -m pip install --quiet --disable-pip-version-check -r "$Stage\requirements.txt" *> "$Root\logs\last-pip.log"
 
     # Tests run with their own throwaway database, never the live one.
-    Push-Location $App
+    Push-Location $Stage
     $env:BUFFSQUAD_ENV = ""
     & $Py -m unittest discover -s tests -t . *> "$Root\logs\last-tests.log"
     $testsPassed = ($LASTEXITCODE -eq 0)
     Pop-Location
 
     if (-not $testsPassed) {
-      Log "Tests failed, staying on $($current.Substring(0, 7)). See $Root\logs\last-tests.log"
-      & $Git -C $App reset --hard --quiet $current
+      Log "Tests failed, live site stays on $($current.Substring(0, 7)). See $Root\logs\last-tests.log"
       Set-Content -Path $SkipFile -Value $latest
-    } elseif (Restart-App) {
+      exit 0
+    }
+
+    Log "Tests passed, deploying $($latest.Substring(0, 7))"
+    & $Git -C $App reset --hard --quiet $latest
+    if (Restart-App) {
       Log "Live: $((Get-Health).version)"
     } else {
       Log "New version didn't start, going back to $($current.Substring(0, 7)). See $Root\logs\app.log"
