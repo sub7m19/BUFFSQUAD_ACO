@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin | BUFFSQUAD ACO</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="dashboard_proto_type.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body data-layout="proto">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></symbol>
+    <symbol id="i-bag" viewBox="0 0 24 24"><path d="M6 7h12l1 14H5L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 10h19M6.5 15h4"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M2 6h12v10H2zM14 10h4l4 3v3h-8"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13l3-8h12l3 8v6H3v-6z"/><path d="M3 13h5l1 2h6l1-2h5"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5z"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+    <symbol id="i-hash" viewBox="0 0 24 24"><path d="M9 3L7 21M17 3l-2 18M4 8.5h17M3 15.5h17"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  </svg>
+
+  <img class="banner" src="assets/arnold-banner.png" alt="" aria-hidden="true">
+  <div class="shade" aria-hidden="true"></div>
+  <div class="light-sweep" aria-hidden="true"></div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <a class="brand" href="index.html" aria-label="BUFFSQUAD ACO home">
+        <span class="brand-mark">BS</span>
+        <span>BUFFSQUAD ADMIN</span>
+      </a>
+      <nav class="nav" aria-label="Admin">
+        <a href="#overview" data-route="overview"><svg class="icon"><use href="#i-home"/></svg><span>Overview</span></a>
+        <a href="#checkouts" data-route="checkouts"><svg class="icon"><use href="#i-bag"/></svg><span>Checkouts</span><b class="nav-badge due" id="nav-unmatched" hidden></b></a>
+        <a href="#channels" data-route="channels"><svg class="icon"><use href="#i-hash"/></svg><span>Channels</span><b class="nav-badge due" id="nav-channels" hidden></b></a>
+        <a href="#members" data-route="members"><svg class="icon"><use href="#i-user"/></svg><span>Members</span></a>
+        <a href="#export" data-route="export"><svg class="icon"><use href="#i-download"/></svg><span>Export</span></a>
+        <a href="#settings" data-route="settings"><svg class="icon"><use href="#i-gear"/></svg><span>Settings</span></a>
+        <a href="#activity" data-route="activity"><svg class="icon"><use href="#i-list"/></svg><span>Activity</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <a class="button ghost small member-view" href="/dashboard" title="Member view"><svg class="icon"><use href="#i-user"/></svg><span>Member view</span></a>
+        <div class="user-chip">
+          <span class="avatar round" id="user-avatar">A</span>
+          <span class="user-name"><strong id="user-chip-name">Admin</strong></span>
+          <a class="logout" href="/auth/logout" aria-label="Log out" title="Log out"><svg class="icon"><use href="#i-out"/></svg></a>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main" id="main" tabindex="-1">
+      <!-- Overview -->
+      <section class="view" data-view="overview" aria-labelledby="overview-title">
+        <header class="page-head">
+          <div>
+            <p class="eyebrow">Admin</p>
+            <h1 id="overview-title">Overview</h1>
+            <p class="page-sub" id="bot-line">Checking the bot…</p>
+          </div>
+        </header>
+
+        <section class="panel" aria-label="Totals">
+          <div class="admin-tiles" id="overview-tiles"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="recent-title">
+          <div class="panel-head">
+            <h2 class="label" id="recent-title">Latest checkouts</h2>
+            <a class="text-link" href="#checkouts">All checkouts</a>
+          </div>
+          <ul class="checkout-list" id="recent-list"></ul>
+          <div class="empty" id="recent-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-bag"/></svg></span>
+            <strong>No checkouts yet</strong>
+            <span>They show up here as soon as the bot sees one in the checkout channel.</span>
+          </div>
+        </section>
+      </section>
+
+      <!-- Checkouts -->
+      <section class="view" data-view="checkouts" aria-labelledby="checkouts-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="checkouts-title">Checkouts</h1>
+            <p class="page-sub">Everything the bot logged, plus any you add by hand. Unmatched ones need a member.</p>
+          </div>
+          <div class="head-actions">
+            <button class="button primary" type="button" id="add-checkout"><svg class="icon"><use href="#i-plus"/></svg>Add checkout</button>
+          </div>
+        </header>
+        <section class="panel">
+          <div class="toolbar">
+            <label class="search">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <span class="sr-only">Search checkouts</span>
+              <input type="search" id="checkout-search" placeholder="Product, order #, profile or member">
+            </label>
+          </div>
+          <div class="segment tabs admin-tabs" role="group" aria-label="Show" data-filter="view">
+            <button type="button" aria-pressed="true" data-value="">Hits</button>
+            <button type="button" aria-pressed="false" data-value="unmatched">Unmatched <b id="count-unmatched"></b></button>
+            <button type="button" aria-pressed="false" data-value="due">Fee due</button>
+            <button type="button" aria-pressed="false" data-value="misses">Misses</button>
+            <button type="button" aria-pressed="false" data-value="dm_failed">DM failed</button>
+          </div>
+          <ul class="checkout-list" id="checkout-list"></ul>
+          <div class="empty" id="checkouts-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-bag"/></svg></span>
+            <strong>Nothing here</strong>
+            <span id="checkouts-empty-text">No checkouts match.</span>
+          </div>
+        </section>
+      </section>
+
+      <!-- Channels -->
+      <section class="view" data-view="channels" aria-labelledby="channels-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="channels-title">Checkout channels</h1>
+            <p class="page-sub">The bot watches these Discord channels for success messages. Changes reach the bot within about 10 seconds.</p>
+          </div>
+        </header>
+
+        <section class="panel admin-form" aria-labelledby="add-channel-title">
+          <h2 class="label" id="add-channel-title">Add a channel</h2>
+          <form id="channel-form" class="channel-form">
+            <label>
+              Channel ID
+              <input id="channel-id" name="id" required inputmode="numeric" autocomplete="off" placeholder="1287654321098765432">
+            </label>
+            <label>
+              <span>Label <small>optional</small></span>
+              <input id="channel-label" name="label" maxlength="60" autocomplete="off" placeholder="Refract success">
+            </label>
+            <button class="button primary" type="submit"><svg class="icon"><use href="#i-plus"/></svg>Add channel</button>
+          </form>
+          <p class="field-error" id="channel-error" hidden></p>
+          <p class="field-hint">In Discord, turn on Developer Mode (User Settings › Advanced), then right-click the channel and pick <b>Copy Channel ID</b>. A pasted channel link works too. The bot has to be in that server with View Channel and Read Message History.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="channel-list-title">
+          <div class="panel-head">
+            <h2 class="label" id="channel-list-title">Watching</h2>
+            <span class="panel-count" id="channel-count"></span>
+          </div>
+          <ul class="checkout-list" id="channel-list"></ul>
+          <div class="empty" id="channels-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-hash"/></svg></span>
+            <strong>No channels yet</strong>
+            <span>Add the channel your checkout bots post success messages in.</span>
+          </div>
+        </section>
+      </section>
+
+      <!-- Members -->
+      <section class="view" data-view="members" aria-labelledby="members-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="members-title">Members</h1>
+            <p class="page-sub">Everyone who has signed in with Discord, and what they've set up.</p>
+          </div>
+        </header>
+        <section class="panel">
+          <div class="toolbar">
+            <label class="search">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <span class="sr-only">Search members</span>
+              <input type="search" id="member-search" placeholder="Name, username or Discord ID">
+            </label>
+          </div>
+          <ul class="checkout-list" id="member-list"></ul>
+          <div class="empty" id="members-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-user"/></svg></span>
+            <strong>No members yet</strong>
+            <span>Members show up after they sign in to the dashboard with Discord.</span>
+          </div>
+        </section>
+      </section>
+
+      <!-- Export -->
+      <section class="view" data-view="export" aria-labelledby="export-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="export-title">Export</h1>
+            <p class="page-sub">Pull members' profiles and accounts into your checkout bots.</p>
+          </div>
+        </header>
+        <div class="split even">
+          <section class="panel admin-form" aria-labelledby="export-profiles-title">
+            <h2 class="label" id="export-profiles-title">Profiles (AYCD JSON)</h2>
+            <p class="field-hint">Every active profile, named by its <b>bot name</b> (like <code>jake-main</code>). Keep those names when you import them into Refract, Valor, Stellar and the rest: the bot matches checkout webhooks to members by that name.</p>
+            <label>
+              Retailer
+              <select id="export-retailer">
+                <option value="">All retailers</option>
+              </select>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="export-cards" checked>
+              <span>Include full card numbers and CVV</span>
+            </label>
+            <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg><span>The file holds card numbers in plain text. Import it, then delete it. Every export is logged under Activity.</span></p>
+            <button class="button primary" type="button" id="export-profiles"><svg class="icon"><use href="#i-download"/></svg>Download profiles</button>
+          </section>
+
+          <section class="panel admin-form" aria-labelledby="export-accounts-title">
+            <h2 class="label" id="export-accounts-title">Retailer accounts</h2>
+            <p class="field-hint">One <code>email:password</code> per line, for every member account on that retailer that has a password saved.</p>
+            <div class="export-buttons" id="export-accounts"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section class="view" data-view="settings" aria-labelledby="settings-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="settings-title">Settings</h1>
+            <p class="page-sub">How new checkouts get their ACO fee. You can still change the fee on any single checkout.</p>
+          </div>
+        </header>
+        <section class="panel admin-form" aria-labelledby="fees-title">
+          <h2 class="label" id="fees-title">Default fee per retailer</h2>
+          <p class="field-hint">Used when no fee rule below matches the checkout.</p>
+          <form id="fees-form">
+            <div class="fee-grid" id="fee-fields"></div>
+            <button class="button primary" type="submit">Save fees</button>
+          </form>
+        </section>
+
+        <section class="panel admin-form" aria-labelledby="rules-title">
+          <div class="panel-head">
+            <h2 class="label" id="rules-title">Fee rules by item</h2>
+            <span class="panel-count" id="rule-count"></span>
+          </div>
+          <p class="field-hint">Checked from the top when a checkout comes in. The first rule that matches sets the fee. If none match, the retailer default above is used.</p>
+          <form id="rules-form" novalidate>
+            <ol class="rule-list" id="rule-list"></ol>
+            <p class="field-hint rules-empty" id="rules-empty" hidden>No rules yet. Every checkout uses its retailer's default fee.</p>
+            <p class="field-error" id="rules-error" hidden></p>
+            <div class="rule-actions">
+              <button class="button ghost" type="button" id="add-rule"><svg class="icon"><use href="#i-plus"/></svg>Add rule</button>
+              <button class="button primary" type="submit" id="save-rules">Save rules</button>
+              <span class="field-hint" id="rules-dirty" hidden>Unsaved changes</span>
+            </div>
+          </form>
+          <div class="apply-row">
+            <p class="field-hint">Rules apply to new checkouts. To recalculate fees on unpaid checkouts already logged (paid ones and fees you set by hand stay as they are):</p>
+            <button class="button ghost" type="button" id="apply-rules">Apply to unpaid checkouts</button>
+          </div>
+        </section>
+      </section>
+
+      <!-- Activity -->
+      <section class="view" data-view="activity" aria-labelledby="activity-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="activity-title">Activity</h1>
+            <p class="page-sub">Sign-ins, reveals, exports and edits, newest first.</p>
+          </div>
+        </header>
+        <section class="panel">
+          <ul class="checkout-list audit-list" id="audit-list"></ul>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <!-- Member details -->
+  <dialog class="modal wide" id="member-modal" aria-labelledby="member-modal-title">
+    <div class="member-detail">
+      <div class="member-top">
+        <span class="avatar round" id="member-avatar"></span>
+        <div>
+          <p class="eyebrow">Member</p>
+          <h2 id="member-modal-title"></h2>
+          <p class="field-hint" id="member-sub"></p>
+        </div>
+        <button class="icon-button" type="button" data-close-modal aria-label="Close" title="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <div id="member-body"></div>
+      <div class="modal-actions">
+        <button class="button ghost" type="button" id="member-toggle"></button>
+        <button class="button primary" type="button" data-close-modal>Done</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Add / edit a checkout -->
+  <dialog class="modal wide" id="checkout-modal" aria-labelledby="checkout-modal-title">
+    <form id="checkout-form" method="dialog">
+      <div>
+        <p class="eyebrow" id="checkout-modal-eyebrow">Checkout</p>
+        <h2 id="checkout-modal-title">Add checkout</h2>
+      </div>
+      <p class="field-hint" id="checkout-source"></p>
+      <label>
+        Member
+        <select name="userId"></select>
+      </label>
+      <div class="form-row">
+        <label>
+          Product
+          <input name="product" required maxlength="200">
+        </label>
+        <label>
+          Retailer
+          <select name="retailer"></select>
+        </label>
+      </div>
+      <div class="form-row">
+        <label>
+          Order #
+          <input name="order" maxlength="80">
+        </label>
+        <label>
+          <span>SKU / TCIN <small>optional</small></span>
+          <input name="sku" maxlength="80">
+        </label>
+      </div>
+      <div class="form-row three">
+        <label>
+          Qty
+          <input name="qty" type="number" min="1" step="1" value="1">
+        </label>
+        <label>
+          Price
+          <input name="price" type="number" min="0" step="0.01">
+        </label>
+        <label>
+          ACO fee
+          <input name="fee" type="number" min="0" step="0.01" placeholder="From rules">
+        </label>
+      </div>
+      <p class="field-hint fee-source" id="fee-source" hidden></p>
+      <div class="form-row">
+        <label>
+          Stage
+          <select name="stage">
+            <option value="confirmed">Confirmed</option>
+            <option value="shipped">Shipped</option>
+            <option value="delivered">Delivered</option>
+            <option value="canceled">Canceled</option>
+          </select>
+        </label>
+        <label class="check-row fee-paid">
+          <input type="checkbox" name="paid">
+          <span>Fee paid</span>
+        </label>
+      </div>
+      <label class="check-row">
+        <input type="checkbox" name="notify" checked>
+        <span id="notify-label">DM the member about this checkout</span>
+      </label>
+      <p class="field-error" id="checkout-error" hidden></p>
+      <div class="modal-actions">
+        <button class="button ghost danger-text" type="button" id="checkout-delete" hidden><svg class="icon"><use href="#i-trash"/></svg>Delete</button>
+        <button class="button ghost" type="button" id="checkout-resend" hidden><svg class="icon"><use href="#i-chat"/></svg>Resend DM</button>
+        <button class="button ghost" type="button" data-close-modal>Cancel</button>
+        <button class="button primary" type="submit" id="checkout-submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

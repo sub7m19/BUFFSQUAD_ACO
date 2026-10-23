@@ -1,0 +1,512 @@
+/* Admin panel: only what the member dashboard styles (dashboard_proto_type.css) don't cover. */
+
+.admin-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-tiles .tile > div {
+  min-width: 0;
+}
+
+.admin-tiles .tile strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+#bot-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.page-sub code,
+.field-hint code,
+.detail-head code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(35, 206, 217, 0.12);
+  color: var(--cyan);
+  font-size: 0.8em;
+}
+
+.admin-tabs {
+  margin: 12px 0 4px;
+}
+
+.admin-tabs b:empty {
+  display: none;
+}
+
+.admin-row {
+  cursor: pointer;
+}
+
+.admin-row:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.checkout-info .unmatched {
+  color: var(--peach);
+}
+
+.checkout-info .dm {
+  font-style: normal;
+  font-weight: 800;
+}
+
+.checkout-info .dm.paid {
+  color: var(--green);
+}
+
+.checkout-info .dm.due {
+  color: var(--red);
+}
+
+.checkout-info .dm.paused {
+  color: var(--muted);
+}
+
+.checkout-info strong .status {
+  display: inline-flex;
+  width: auto;
+  min-height: 20px;
+  margin-left: 6px;
+  vertical-align: 2px;
+}
+
+.avatar.round img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.audit-list li {
+  cursor: default;
+}
+
+/* Forms on Export and Settings */
+
+.admin-form {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.admin-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--soft);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.admin-form input:not([type="checkbox"]),
+.admin-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--white);
+}
+
+.admin-form select option {
+  background: var(--ink);
+}
+
+.admin-form input:focus,
+.admin-form select:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(35, 206, 217, 0.2);
+}
+
+.admin-form label.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-form form {
+  display: grid;
+  gap: 16px;
+}
+
+.fee-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.export-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-form > .button,
+.admin-form form > .button {
+  justify-self: start;
+}
+
+/* Fee rules */
+
+.rule-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: rule;
+}
+
+.rule {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr) 110px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "num match text text text tools"
+    "num retailer retailer amount kind kind";
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+  counter-increment: rule;
+}
+
+.rule-num { grid-area: num; align-self: start; padding-top: 12px; }
+.rule-match { grid-area: match; }
+.rule-text { grid-area: text; }
+.rule-retailer { grid-area: retailer; }
+.rule-amount { grid-area: amount; }
+.rule-kind { grid-area: kind; }
+.rule-tools { grid-area: tools; }
+
+.rule-num::before {
+  content: counter(rule);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.rule label {
+  display: block;
+}
+
+.rule-tools {
+  display: flex;
+  gap: 4px;
+}
+
+.rule:first-child [data-rule-move="-1"],
+.rule:last-child [data-rule-move="1"] {
+  visibility: hidden;
+}
+
+.rule-actions,
+.apply-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.apply-row {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.apply-row p {
+  flex: 1 1 320px;
+}
+
+#rules-dirty {
+  color: var(--peach);
+}
+
+#apply-rules.confirm {
+  border-color: var(--peach);
+  background: rgba(252, 164, 124, 0.14);
+  color: var(--peach);
+}
+
+.fee-source {
+  margin-top: -6px;
+}
+
+@media (max-width: 720px) {
+  .rule {
+    grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "num match match"
+      "num text text"
+      "num retailer retailer"
+      "num amount kind"
+      "num tools tools";
+  }
+
+  .rule-tools {
+    justify-content: flex-end;
+  }
+}
+
+/* Channels */
+
+.channel-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.channel-form label small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.channel-form .button {
+  min-height: 44px;
+}
+
+.channel-row .checkout-info .mono {
+  display: inline;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.channel-row .icon-button.confirm {
+  border-color: var(--red);
+  background: rgba(255, 133, 133, 0.16);
+  color: var(--red);
+}
+
+@media (max-width: 720px) {
+  .channel-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Seven tabs in the phone bottom bar */
+  .nav {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .nav a {
+    font-size: 0.6rem;
+  }
+}
+
+/* Member details */
+
+.modal.wide:has(.member-detail) {
+  width: min(860px, calc(100% - 32px));
+}
+
+.member-detail {
+  display: grid;
+  gap: 18px;
+}
+
+.member-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.member-top > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.member-top .avatar {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+}
+
+.detail-block {
+  display: grid;
+  gap: 10px;
+}
+
+.detail-block > h3 {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.detail-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(0, 0, 0, 0.22);
+  font-size: 0.86rem;
+}
+
+.detail-card.off {
+  opacity: 0.6;
+}
+
+.detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.detail-card dt {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.detail-card dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.member-export {
+  display: grid;
+  gap: 10px;
+}
+
+.member-export .count {
+  margin-left: 2px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.member-export .button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.member-export .check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--soft);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.secret {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.secret small {
+  color: var(--muted);
+}
+
+.plain-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plain-list li span {
+  overflow-wrap: anywhere;
+}
+
+code.revealed {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(252, 164, 124, 0.14);
+  color: var(--peach);
+  font-size: 0.82rem;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.fee-paid {
+  align-self: end;
+  min-height: 44px;
+}
+
+.button.danger-text {
+  margin-right: auto;
+  color: var(--red);
+}
+
+.button.danger-text.confirm {
+  border-color: var(--red);
+  background: rgba(255, 133, 133, 0.12);
+}
+
+.check-row[hidden] {
+  display: none;
+}
+
+@media (max-width: 1020px) {
+  .admin-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-tiles {
+    gap: 10px;
+  }
+
+  .modal .modal-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* Small phones: the Member view button shows only its icon so the top bar fits */
+@media (max-width: 400px) {
+  .member-view span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .sidebar-foot .member-view {
+    padding: 0 10px;
+  }
+}

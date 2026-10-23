@@ -1,4 +1,5 @@
-// Sample data until there's a backend. Swap these for API responses later.
+// Sample data, shown when the page runs without the BUFFSQUAD server (static
+// hosting). With the server, boot() swaps in the member's own data.
 const user = { name: "Member" };
 
 const RETAILERS = ["Target", "Pokemon Center"];
@@ -17,7 +18,7 @@ const checkouts = [
 ];
 
 // Attempts that didn't go through, for the hit rate.
-const declined = 2;
+let declined = 2;
 
 const feed = [
   { kind: "hit", text: "Checked out Prismatic Evolutions ETB", meta: "Target · Qty 2", at: now - 6 * minute },
@@ -56,10 +57,27 @@ const defaults = {
   inbox: { method: null, email: "" },
 };
 
+// A signed-in member with nothing saved yet starts empty, not with the samples.
+const blank = {
+  accounts: Object.fromEntries(RETAILERS.map((r) => [r, []])),
+  profiles: [],
+  discord: true,
+  notify: { ...defaults.notify },
+  inbox: { ...defaults.inbox },
+};
+
 function load() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (!saved) return structuredClone(defaults);
+    return normalize(JSON.parse(localStorage.getItem(STORE_KEY)));
+  } catch {
+    return structuredClone(defaults);
+  }
+}
+
+// Fills in anything an older save is missing.
+function normalize(saved, base = defaults) {
+  try {
+    if (!saved) return structuredClone(base);
     // Older saves kept a single shipping address; turn it into a profile.
     if (!saved.profiles) {
       saved.profiles = saved.shipping
@@ -72,15 +90,74 @@ function load() {
       const v = saved.accounts && saved.accounts[r];
       return [r, Array.isArray(v) ? v : v ? [{ id: "a" + r.length, email: v }] : []];
     }));
-    return { ...defaults, ...saved, accounts, notify: { ...defaults.notify, ...saved.notify }, inbox: { ...defaults.inbox, ...saved.inbox } };
+    return { ...base, ...saved, accounts, notify: { ...base.notify, ...saved.notify }, inbox: { ...base.inbox, ...saved.inbox } };
   } catch {
-    return structuredClone(defaults);
+    return structuredClone(base);
   }
 }
 
 const state = load();
 
+// Server mode
+
+// True once /api/me answered: settings save to the server instead of this browser.
+let remote = false;
+// Which secrets the server already holds for this member (ids only, never values).
+const saved = { cards: new Set(), accounts: new Set(), inbox: false };
+
+// Writes go out one at a time and in order, so a card saved right after a
+// settings change never lands before it.
+let writes = Promise.resolve();
+
+function send(method, url, body) {
+  const run = () => fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then((res) => {
+    if (res.status === 401) location.href = "/auth/discord/login?next=/dashboard";
+    if (!res.ok) throw new Error(res.status);
+    return res.json();
+  });
+  const done = writes.then(run);
+  writes = done.catch(() => {});
+  return done;
+}
+
+function applySaved(s) {
+  saved.cards = new Set(s.cards);
+  saved.accounts = new Set(s.accounts);
+  saved.inbox = s.inbox;
+}
+
+// Card numbers, passwords and inbox keys go to the server one at a time, where
+// they're stored encrypted. They're never part of the settings document.
+function storeSecret(kind, ref, value) {
+  if (!remote) return;
+  send("POST", "/api/me/secret", { kind, ref, value })
+    .then(() => {
+      const set = kind === "card" ? saved.cards : saved.accounts;
+      if (kind === "inbox") saved.inbox = value !== null;
+      else if (value === null) set.delete(ref);
+      else set.add(ref);
+    })
+    .catch(() => notify("Couldn't save that to the server. Try again."));
+}
+
+const hasPassword = (id) => accountVault.has(id) || saved.accounts.has(id);
+
+let saveTimer;
+
 function save() {
+  if (remote) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      send("PUT", "/api/me/settings", state)
+        .then((res) => applySaved(res.saved))
+        .catch(() => notify("Couldn't save your changes. Check your connection and try again."));
+    }, 400);
+    return;
+  }
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
   } catch {
@@ -249,7 +326,7 @@ function renderCheckouts() {
       <span class="avatar">${escape(initials(c.retailer))}</span>
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
-        <span>${escape(c.retailer)} · #${escape(c.order)} · ${escape(c.date)}</span>
+        <span>${escape(c.retailer)}${c.order ? ` · #${escape(c.order)}` : ""} · ${escape(c.date)}</span>
       </div>
       <span class="stage ${STAGES[c.stage].tone}">${icon(STAGES[c.stage].icon)}${STAGES[c.stage].label}</span>
       <div class="checkout-fee">
@@ -279,7 +356,7 @@ function renderBilling() {
       <span class="avatar">${escape(initials(c.retailer))}</span>
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
-        <span>#${escape(c.order)} · ${escape(c.date)} · ${money(c.price)} retail</span>
+        <span>${c.order ? `#${escape(c.order)} · ` : ""}${escape(c.date)} · ${money(c.price)} retail</span>
       </div>
       <div class="checkout-fee">
         <strong>${money(c.fee)}</strong>
@@ -389,7 +466,7 @@ function renderProfiles() {
               <li>
                 <div>
                   <strong>${escape(a.email)}</strong>
-                  <small>${accountVault.has(a.id) ? "Password ••••••••" : "No password this visit"}</small>
+                  <small>${hasPassword(a.id) ? "Password ••••••••" : remote ? "No password saved" : "No password this visit"}</small>
                 </div>
                 <button class="icon-button" type="button" data-edit-account="${a.id}" aria-label="Edit ${escape(a.email)}" title="Edit">${icon("edit")}</button>
                 <button class="icon-button danger" type="button" data-unlink="${a.id}" aria-label="Remove ${escape(a.email)}" title="Remove">${icon("trash")}</button>
@@ -550,7 +627,7 @@ function openAccountModal(retailer, id) {
   byId("account-submit").textContent = found ? "Save changes" : "Add account";
   byId("account-picks").innerHTML = retailerPicks(found ? found.retailer : retailer || RETAILERS[0], Boolean(found));
   accountForm.elements.email.value = found ? found.account.email : "";
-  const keep = Boolean(found && accountVault.has(found.account.id));
+  const keep = Boolean(found && hasPassword(found.account.id));
   accountForm.elements.password.required = !keep;
   accountForm.elements.password.placeholder = keep ? "Leave blank to keep it" : "";
   accountModal.showModal();
@@ -634,6 +711,7 @@ const accountVault = new Map();
 
 function saveAccountPassword(id, password) {
   accountVault.set(id, password);
+  storeSecret("account", id, password);
 }
 
 // Inbox
@@ -656,19 +734,20 @@ async function checkInbox(kind, body) {
     });
     return await res.json();
   } catch {
-    // Static hosting (GitHub Pages) has no server to run the check.
+    // Static hosting has no server to run the check.
     return { ok: false, message: "Checking your inbox needs the BUFFSQUAD server, which isn't running on this site." };
   }
 }
 
 function saveInboxSecret(secret) {
   inboxSecret = secret;
+  storeSecret("inbox", "inbox", secret);
 }
 
 function renderInbox() {
   if (!byId("inbox-status")) return;
   const { method } = state.inbox;
-  const ready = Boolean(method && inboxSecret);
+  const ready = Boolean(method && (inboxSecret || saved.inbox));
   const name = method === "aycd" ? "AYCD Inbox" : "Gmail";
   const status = byId("inbox-status");
   status.className = "status " + (ready ? "paid" : method ? "paused" : "due");
@@ -892,6 +971,7 @@ const cardVault = new Map();
 
 function saveCard(profileId, card) {
   cardVault.set(profileId, card);
+  storeSecret("card", profileId, card);
 }
 
 const CARD_PATTERNS = [
@@ -1327,5 +1407,37 @@ document.addEventListener("click", (e) => {
   }
 });
 
-render();
-route();
+// Signed in through the BUFFSQUAD server: load this member's own data. Without
+// a server (static hosting), /api/me isn't there and the sample data stays.
+function applyRemote(data) {
+  remote = true;
+  user.name = data.user.name;
+  checkouts.splice(0, checkouts.length, ...data.checkouts);
+  declined = data.declined;
+  feed.splice(0, feed.length, ...data.feed);
+  const fresh = normalize(data.settings, blank);
+  Object.keys(state).forEach((k) => delete state[k]);
+  Object.assign(state, fresh);
+  filters.inboxMethod = state.inbox.method || "aycd";
+  applySaved(data.saved);
+  document.querySelector(".logout").href = "/auth/logout";
+  const inboxNote = document.querySelector('[data-view="inbox"] .modal-note span');
+  if (inboxNote) inboxNote.textContent = "Your key or app password is stored encrypted on the BUFFSQUAD server and is never saved in your browser.";
+}
+
+async function boot() {
+  try {
+    const res = await fetch("/api/me", { headers: { Accept: "application/json" } });
+    if (res.status === 401) {
+      location.href = "/auth/discord/login?next=" + encodeURIComponent("/dashboard" + location.hash);
+      return;
+    }
+    if (res.ok && (res.headers.get("Content-Type") || "").includes("json")) applyRemote(await res.json());
+  } catch {
+    // No server: keep the sample data.
+  }
+  render();
+  route();
+}
+
+boot();
