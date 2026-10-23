@@ -214,29 +214,6 @@ function totals() {
   };
 }
 
-function setupSteps() {
-  return [
-    ...RETAILERS.map((r) => ({
-      done: hasAccount(r),
-      title: `Add a ${r} account`,
-      text: "So we can check out on it",
-      action: `<button class="button ghost small" type="button" data-link="${r}">Add</button>`,
-    })),
-    {
-      done: state.profiles.some((p) => p.active),
-      title: "Add a checkout profile",
-      text: "Shipping address and card on file",
-      action: `<button class="button ghost small" type="button" data-add-profile="${RETAILERS[0]}">Add</button>`,
-    },
-    {
-      done: state.discord,
-      title: "Join the Discord",
-      text: "Checkout alerts and billing",
-      action: `<a class="button ghost small" href="https://discord.gg/7SGtgcEq" target="_blank" rel="noreferrer" data-discord>Join</a>`,
-    },
-  ];
-}
-
 // Home
 
 function renderHome() {
@@ -483,17 +460,13 @@ function renderProfiles() {
     </button>`).join("");
 }
 
-// Shell: sidebar badges and user chip
+// Shell: sidebar badge and user chip. Only Billing gets a badge (unpaid fees);
+// unfinished setup isn't flagged, so new members don't see "unread" bubbles.
 
 function renderShell() {
   const t = totals();
-  const missing = setupSteps().filter((s) => !s.done && !s.title.includes("Discord")).length;
-  const badge = (id, n) => {
-    byId(id).textContent = n || "";
-    byId(id).hidden = !n;
-  };
-  badge("nav-billing", t.dueCount);
-  badge("nav-profiles", missing);
+  byId("nav-billing").textContent = t.dueCount || "";
+  byId("nav-billing").hidden = !t.dueCount;
 
   byId("user-chip-name").textContent = user.name;
   byId("user-avatar").textContent = initials(user.name);
@@ -752,8 +725,6 @@ function renderInbox() {
   const status = byId("inbox-status");
   status.className = "status " + (ready ? "paid" : method ? "paused" : "due");
   status.textContent = !method ? "Not connected" : ready ? `${name} connected` : `Re-enter your ${name} details this visit`;
-  byId("nav-inbox").textContent = ready ? "" : "1";
-  byId("nav-inbox").hidden = ready;
 
   syncSegment("inboxMethod");
   byId("inbox-aycd-form").hidden = filters.inboxMethod !== "aycd";
