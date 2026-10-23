@@ -274,73 +274,136 @@ async function openMemberModal(id) {
   const accounts = s.accounts || {};
   const saved = { cards: new Set(m.saved.cards), accounts: new Set(m.saved.accounts) };
 
+  const retailers = data.settings ? data.settings.retailers : ["Target", "Pokemon Center"];
+
+  // Header
   byId("member-avatar").outerHTML = avatar(m).replace('class="avatar round"', 'class="avatar round" id="member-avatar"');
   byId("member-modal-title").textContent = m.name;
-  byId("member-sub").textContent = `@${m.username} · Discord ID ${m.discordId} · joined ${when(m.createdAt)}`;
-  byId("member-toggle").textContent = m.disabled ? "Turn account back on" : "Turn account off";
+  byId("member-tags").innerHTML = [
+    m.isAdmin ? `<span class="status paid">Admin</span>` : "",
+    m.disabled ? `<span class="status due">Turned off</span>` : `<span class="status running">Active</span>`,
+  ].join("");
+  byId("member-sub").innerHTML = `
+    <span>@${escape(m.username)}</span>
+    <span class="member-discord">Discord ID <code>${escape(m.discordId)}</code>
+      <button class="icon-button tiny" type="button" data-copy="${escape(m.discordId)}" aria-label="Copy Discord ID" title="Copy Discord ID">${icon("copy")}</button></span>
+    <span>Joined ${escape(new Date(m.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}</span>
+    <span>Last seen ${m.lastLogin ? ago(m.lastLogin) : "never"}</span>`;
+  byId("member-toggle").innerHTML = m.disabled ? `${icon("check")}Turn account back on` : `${icon("x")}Turn account off`;
   byId("member-toggle").hidden = m.isAdmin;
 
-  const section = (title, body) => `<section class="detail-block"><h3 class="label">${title}</h3>${body}</section>`;
+  const section = (title, count, body, tools = "") => `
+    <section class="m-section">
+      <div class="m-head">
+        <h3 class="label">${title}${count === null ? "" : ` <b>${count}</b>`}</h3>
+        ${tools}
+      </div>
+      ${body}
+    </section>`;
+  const empty = (ic, text) => `<div class="m-empty"><span class="empty-icon">${icon(ic)}</span><span>${text}</span></div>`;
 
-  const profileHtml = profiles.length ? profiles.map((p) => `
-    <article class="detail-card ${p.active === false ? "off" : ""}">
-      <div class="detail-head">
+  // At a glance, in the dashboard's tile style
+  const stats = `
+    <div class="m-stats">
+      <div class="tile"><span class="tile-icon cyan">${icon("bag")}</span><div><small>Checkouts</small><strong>${m.hits}</strong></div></div>
+      <div class="tile ${m.due ? "due" : ""}"><span class="tile-icon peach">${icon("card")}</span><div><small>Fees due</small><strong>${money(m.due)}</strong></div></div>
+      <div class="tile"><span class="tile-icon green">${icon("check")}</span><div><small>Fees paid</small><strong>${money(m.paid)}</strong></div></div>
+      <div class="tile"><span class="tile-icon violet">${icon("user")}</span><div><small>Set up</small><strong>${plural(m.profiles, "profile")}</strong><span class="tile-note">${plural(m.accounts, "account")}</span></div></div>
+    </div>`;
+
+  // Profiles, with this member's AYCD download in the section header
+  const active = profiles.filter((p) => p.active !== false);
+  const downloads = active.length ? `
+    <div class="m-tools">
+      ${[...retailers, ""].map((r) => {
+        const n = r ? active.filter((p) => (p.sites || []).includes(r)).length : active.length;
+        return `<button class="button ghost small" type="button" data-member-export="${escape(r)}" ${n ? "" : "disabled"}
+          title="Download ${r ? escape(r) + " " : ""}profiles as AYCD JSON">${icon("download")}${r ? escape(r) : "All"} <b class="count">${n}</b></button>`;
+      }).join("")}
+      <label class="check-row m-cards"><input type="checkbox" id="member-export-cards" checked><span>With cards</span></label>
+    </div>` : "";
+  const profileHtml = profiles.length ? `<div class="m-grid">${profiles.map((p) => `
+    <article class="m-card ${p.active === false ? "off" : ""}">
+      <div class="m-card-head">
         <strong>${escape(p.label)}</strong>
         <code title="Name in the checkout bots">${escape(p.botName || "—")}</code>
         ${p.active === false ? `<span class="status paused">Paused</span>` : ""}
       </div>
+      <div class="m-sites">${(p.sites || []).map((site) => `<span class="retailer"><i></i>${escape(site)}</span>`).join("")}</div>
       <dl>
-        <dt>Sites</dt><dd>${escape((p.sites || []).join(", "))}</dd>
         <dt>Ship to</dt><dd>${escape(p.name)}<br>${escape(p.line1)}${p.line2 ? ", " + escape(p.line2) : ""}<br>${escape(p.city)}, ${escape(p.state)} ${escape(p.zip)}</dd>
         <dt>Email</dt><dd>${escape(p.email || "—")}</dd>
         <dt>Phone</dt><dd>${escape(p.phone || "—")}</dd>
-        <dt>Card</dt><dd class="secret" data-secret="card:${escape(p.id)}">${p.last4 ? `${escape(p.brand)} •••• ${escape(p.last4)} · ${escape(p.exp)} · ${escape(p.cardName)}` : "No card"}
+        <dt>Card</dt><dd class="secret" data-secret="card:${escape(p.id)}">${p.last4 ? `<span>${escape(p.brand)} •••• ${escape(p.last4)} · ${escape(p.exp)}</span>` : "<span>No card</span>"}
           ${saved.cards.has(String(p.id)) ? revealButton("card", p.id, "Full card") : p.last4 ? `<small>Number not saved on server</small>` : ""}</dd>
       </dl>
-    </article>`).join("") : `<p class="field-hint">No profiles yet.</p>`;
+    </article>`).join("")}</div>
+    ${active.length ? `<p class="field-hint m-hint">Downloads are AYCD JSON named by bot name. Paused profiles are left out, and each download is logged under Activity.</p>` : ""}`
+    : empty("user", "No profiles yet.");
 
-  const accountHtml = Object.entries(accounts).map(([retailer, list]) => `
-    <div class="detail-card">
-      <div class="detail-head"><strong>${escape(retailer)}</strong><span class="field-hint">${plural(list.length, "account")}</span></div>
-      ${list.length ? `<ul class="plain-list">${list.map((a) => `
-        <li class="secret" data-secret="account:${escape(a.id)}"><span>${escape(a.email)}</span>
-          ${saved.accounts.has(String(a.id)) ? revealButton("account", a.id, "Password") : `<small>No password saved</small>`}</li>`).join("")}</ul>` : ""}
-    </div>`).join("");
+  // Retailer accounts
+  const accountHtml = `<div class="m-grid">${retailers.map((retailer) => {
+    const list = accounts[retailer] || [];
+    return `
+      <article class="m-card">
+        <div class="m-card-head">
+          <span class="avatar">${escape(initials(retailer))}</span>
+          <strong>${escape(retailer)}</strong>
+          <span class="status ${list.length ? "paid" : "paused"}">${plural(list.length, "account")}</span>
+        </div>
+        ${list.length ? `<ul class="plain-list">${list.map((a) => `
+          <li class="secret" data-secret="account:${escape(a.id)}"><span>${escape(a.email)}</span>
+            ${saved.accounts.has(String(a.id)) ? revealButton("account", a.id, "Password") : `<small>No password saved</small>`}</li>`).join("")}</ul>`
+          : `<p class="field-hint">No ${escape(retailer)} accounts yet.</p>`}
+      </article>`;
+  }).join("")}</div>`;
 
+  // Inbox and notifications, side by side
   const inbox = s.inbox || {};
-  const inboxHtml = inbox.method
-    ? `<div class="detail-card secret" data-secret="inbox:inbox"><span>${inbox.method === "aycd" ? "AYCD Inbox key" : `Gmail · ${escape(inbox.email)}`}</span>
-        ${m.saved.inbox ? revealButton("inbox", "inbox", inbox.method === "aycd" ? "Key" : "App password") : `<small>Not saved on server</small>`}</div>`
-    : `<p class="field-hint">Not connected.</p>`;
+  const notify = { checkout: "Checkout alerts", reminders: "Drop reminders", receipts: "Email receipts" };
+  const connections = `
+    <div class="m-grid">
+      <article class="m-card">
+        <div class="m-card-head">
+          <span class="tile-icon cyan small-icon">${icon("inbox")}</span>
+          <strong>Inbox</strong>
+          <span class="status ${inbox.method ? "paid" : "due"}">${inbox.method ? "Connected" : "Not connected"}</span>
+        </div>
+        ${inbox.method
+          ? `<div class="secret" data-secret="inbox:inbox"><span>${inbox.method === "aycd" ? "AYCD Inbox" : `Gmail · ${escape(inbox.email)}`}</span>
+              ${m.saved.inbox ? revealButton("inbox", "inbox", inbox.method === "aycd" ? "Key" : "App password") : `<small>Not saved on server</small>`}</div>`
+          : `<p class="field-hint">No inbox connected for verification codes.</p>`}
+      </article>
+      <article class="m-card">
+        <div class="m-card-head">
+          <span class="tile-icon violet small-icon">${icon("bell")}</span>
+          <strong>Notifications</strong>
+        </div>
+        <ul class="m-toggles">${Object.entries(notify).map(([key, label]) => {
+          const on = (s.notify || {})[key] ?? key !== "receipts";
+          return `<li><span>${label}</span><span class="status ${on ? "paid" : "paused"}">${on ? "On" : "Off"}</span></li>`;
+        }).join("")}</ul>
+      </article>
+    </div>`;
 
-  // Download this member's active profiles as AYCD JSON, per retailer or all.
-  const active = profiles.filter((p) => p.active !== false);
-  const exportHtml = active.length ? `
-    <div class="member-export">
-      <div class="export-buttons">
-        ${[...(data.settings ? data.settings.retailers : ["Target", "Pokemon Center"]), ""].map((r) => {
-          const n = r ? active.filter((p) => (p.sites || []).includes(r)).length : active.length;
-          return `<button class="button ghost" type="button" data-member-export="${escape(r)}" ${n ? "" : "disabled"}>
-            ${icon("download")}${r ? escape(r) : "All sites"} <b class="count">${n}</b></button>`;
-        }).join("")}
-      </div>
-      <label class="check-row"><input type="checkbox" id="member-export-cards" checked><span>Include full card numbers and CVV</span></label>
-      <p class="field-hint">AYCD JSON, named by bot name. Paused profiles are left out. Each download is logged under Activity.</p>
-    </div>` : `<p class="field-hint">No active profiles to download.</p>`;
-
-  const notifyOn = Object.entries(s.notify || {}).filter(([, v]) => v).map(([k]) => k);
   byId("member-body").innerHTML = [
-    section(`Profiles · ${profiles.length}`, `<div class="detail-grid">${profileHtml}</div>`),
-    section("Download profiles", exportHtml),
-    section("Retailer accounts", `<div class="detail-grid">${accountHtml || `<p class="field-hint">None yet.</p>`}</div>`),
-    section("Inbox", inboxHtml),
-    section("Notifications", `<p class="field-hint">${notifyOn.length ? escape(notifyOn.join(", ")) : "All off"}</p>`),
-    section(`Checkouts · ${m.checkouts.length}`, m.checkouts.length
+    stats,
+    section("Profiles", profiles.length, profileHtml, downloads),
+    section("Retailer accounts", Object.values(accounts).reduce((n, list) => n + (list ? list.length : 0), 0), accountHtml),
+    section("Inbox & notifications", null, connections),
+    section("Checkouts", m.checkouts.length, m.checkouts.length
       ? `<ul class="checkout-list">${m.checkouts.map(checkoutRow).join("")}</ul>`
-      : `<p class="field-hint">None yet.</p>`),
+      : empty("bag", "No checkouts yet.")),
   ].join("");
+  byId("member-body").scrollTop = 0;
   if (!memberModal.open) memberModal.showModal();
 }
+
+byId("member-sub").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-copy]");
+  if (!btn) return;
+  navigator.clipboard.writeText(btn.dataset.copy).then(() => notify("Discord ID copied"), () => notify("Couldn't copy. Select the ID and copy it instead."));
+});
 
 byId("member-body").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-member-export]");

@@ -39,6 +39,8 @@
     <symbol id="i-hash" viewBox="0 0 24 24"><path d="M9 3L7 21M17 3l-2 18M4 8.5h17M3 15.5h17"/></symbol>
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4l2-2z"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></symbol>
     <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
   </svg>
 
@@ -290,22 +292,24 @@
   </div>
 
   <!-- Member details -->
-  <dialog class="modal wide" id="member-modal" aria-labelledby="member-modal-title">
+  <dialog class="modal member-modal" id="member-modal" aria-labelledby="member-modal-title">
     <div class="member-detail">
-      <div class="member-top">
+      <header class="member-top">
         <span class="avatar round" id="member-avatar"></span>
-        <div>
-          <p class="eyebrow">Member</p>
-          <h2 id="member-modal-title"></h2>
-          <p class="field-hint" id="member-sub"></p>
+        <div class="member-id">
+          <div class="member-name">
+            <h2 id="member-modal-title"></h2>
+            <span class="member-tags" id="member-tags"></span>
+          </div>
+          <p class="member-meta" id="member-sub"></p>
         </div>
         <button class="icon-button" type="button" data-close-modal aria-label="Close" title="Close"><svg class="icon"><use href="#i-x"/></svg></button>
-      </div>
-      <div id="member-body"></div>
-      <div class="modal-actions">
-        <button class="button ghost" type="button" id="member-toggle"></button>
+      </header>
+      <div class="member-scroll" id="member-body" tabindex="-1" autofocus></div>
+      <footer class="member-foot">
+        <button class="button ghost danger-text" type="button" id="member-toggle"></button>
         <button class="button primary" type="button" data-close-modal>Done</button>
-      </div>
+      </footer>
     </div>
   </dialog>
 
