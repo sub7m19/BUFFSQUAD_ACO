@@ -173,7 +173,13 @@ def kv_set(conn, key: str, value) -> None:
 
 def fees(conn) -> dict:
     """Default ACO fee per retailer, set by admins. 'Other' covers anything else."""
-    return {"Other": 0, **{r: 0 for r in config.RETAILERS}, **kv_get(conn, "fees", {})}
+    return {**{r: 0 for r in config.RETAILERS}, "Other": 0, **kv_get(conn, "fees", {})}
+
+
+def fee_types(conn) -> dict:
+    """How each retailer's default fee is charged: 'flat' ($ per checkout) or 'percent' (% of price)."""
+    saved = kv_get(conn, "fee_types", {})
+    return {r: saved.get(r, "flat") for r in fees(conn)}
 
 
 # Fee rules: set a checkout's fee by what was bought. Each rule is
@@ -211,8 +217,12 @@ def compute_fee(conn, retailer: str, product: str, sku: str, price: float, qty: 
             else:
                 fee = amount
             return round(fee, 2), f"rule:{rule.get('id')}"
-    table = fees(conn)
-    return float(table.get(retailer, table["Other"])), "default"
+    table, types = fees(conn), fee_types(conn)
+    key = retailer if retailer in table else "Other"
+    amount = float(table[key])
+    if types.get(key) == "percent":
+        return round((price or 0) * amount / 100, 2), "default"
+    return amount, "default"
 
 
 def checkout_channels(conn) -> list[dict]:

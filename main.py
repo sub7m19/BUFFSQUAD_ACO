@@ -686,7 +686,8 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         return h.send_file(f"buffsquad-{slug}-accounts.txt", "\r\n".join(lines) + "\r\n", "text/plain")
 
     if (method, path) == ("GET", "/api/admin/settings"):
-        return h.send_json(200, {"fees": db.fees(conn), "rules": db.fee_rules(conn), "retailers": config.RETAILERS})
+        return h.send_json(200, {"fees": db.fees(conn), "feeTypes": db.fee_types(conn), "rules": db.fee_rules(conn),
+                                 "retailers": config.RETAILERS})
 
     if (method, path) == ("PUT", "/api/admin/fee-rules"):
         body = h.body(limit=64 * 1024)
@@ -741,9 +742,15 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             fees = {str(k)[:60]: round(float(v), 2) for k, v in (body.get("fees") or {}).items()}
         except (TypeError, ValueError):
             raise AppError(400, "Fees must be numbers.")
+        types = {k: "percent" if (body.get("feeTypes") or {}).get(k) == "percent" else "flat" for k in fees}
+        for k, v in fees.items():
+            if v < 0 or (types[k] == "percent" and v > 100):
+                raise AppError(400, f"The {k if k != 'Other' else 'other retailers'} fee must be "
+                                    f"{'between 0 and 100%' if types[k] == 'percent' else '$0 or more'}.")
         db.kv_set(conn, "fees", fees)
-        db.audit(conn, admin["id"], "settings.fees", json.dumps(fees))
-        return h.send_json(200, {"ok": True, "fees": db.fees(conn)})
+        db.kv_set(conn, "fee_types", types)
+        db.audit(conn, admin["id"], "settings.fees", json.dumps({k: f"{v}%" if types[k] == "percent" else f"${v}" for k, v in fees.items()}))
+        return h.send_json(200, {"ok": True, "fees": db.fees(conn), "feeTypes": db.fee_types(conn)})
 
     if (method, path) == ("GET", "/api/admin/channels"):
         counts = {r["channel_id"]: r["n"] for r in conn.execute(

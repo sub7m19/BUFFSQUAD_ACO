@@ -42,11 +42,40 @@ class ComputeFee(unittest.TestCase):
         self.assertEqual(self.fee("Target", "Some item", sku="94681785x"), (12.0, "default"))
 
 
+class DefaultFeeTypes(unittest.TestCase):
+    def setUp(self):
+        db.init()
+
+    def tearDown(self):
+        with db.transaction() as conn:
+            db.kv_set(conn, "fees", {"Target": 12, "Pokemon Center": 10, "Other": 8})
+            db.kv_set(conn, "fee_types", {})
+
+    def test_percent_default(self):
+        with db.transaction() as conn:
+            db.kv_set(conn, "fees", {"Target": 10, "Pokemon Center": 15, "Other": 5})
+            db.kv_set(conn, "fee_types", {"Target": "percent", "Other": "percent"})
+            # 10% of $159.99; Pokemon Center stays flat; unknown retailers use Other (5%).
+            self.assertEqual(db.compute_fee(conn, "Target", "Box", "", 159.99, 1, rules=[]), (16.0, "default"))
+            self.assertEqual(db.compute_fee(conn, "Pokemon Center", "Box", "", 159.99, 1, rules=[]), (15.0, "default"))
+            self.assertEqual(db.compute_fee(conn, "Walmart", "Box", "", 40, 1, rules=[]), (2.0, "default"))
+            # Saved before fee types existed: still flat.
+            db.kv_set(conn, "fee_types", {})
+            self.assertEqual(db.compute_fee(conn, "Target", "Box", "", 159.99, 1, rules=[]), (10.0, "default"))
+
+
 class FeeRulesApi(ServerCase):
     def test_rules_api_bot_checkouts_and_apply(self):
         admin = self.client().login("feeboss", admin=True)
         bad = [{"match": "product", "text": "", "kind": "flat", "amount": 5}]
         self.assertEqual(admin.request("PUT", "/api/admin/fee-rules", {"rules": bad})[0], 400)
+        # Default fees: % over 100 refused; a saved % type comes back from settings.
+        self.assertEqual(admin.request("PUT", "/api/admin/settings", {"fees": {"Target": 120}, "feeTypes": {"Target": "percent"}})[0], 400)
+        self.assertEqual(admin.request("PUT", "/api/admin/settings", {"fees": {"Target": 12, "Other": 7}, "feeTypes": {"Other": "percent"}})[0], 200)
+        _, settings, _ = admin.request("GET", "/api/admin/settings")
+        self.assertEqual((settings["feeTypes"]["Target"], settings["feeTypes"]["Other"]), ("flat", "percent"))
+        with db.transaction() as conn:
+            db.kv_set(conn, "fee_types", {})
         bad = [{"match": "product", "text": "x", "kind": "percent", "amount": 150}]
         self.assertEqual(admin.request("PUT", "/api/admin/fee-rules", {"rules": bad})[0], 400)
 

@@ -517,7 +517,11 @@ byId("add-checkout").addEventListener("click", () => openCheckoutModal(null));
 // Where a checkout's fee came from, for the checkout editor.
 function feeSourceText(c) {
   if (c.feeSource === "manual") return "Fee set by hand. Applying fee rules won't change it.";
-  if (c.feeSource === "default") return `Fee from the ${c.retailer} default in Settings.`;
+  if (c.feeSource === "default") {
+    const key = data.settings && data.settings.fees[c.retailer] !== undefined ? c.retailer : "Other";
+    const pct = data.settings && (data.settings.feeTypes || {})[key] === "percent";
+    return `Fee from the ${key === "Other" ? "other retailers" : key} default in Settings${pct ? ` (${data.settings.fees[key]}% of price)` : ""}.`;
+  }
   if (c.feeSource && c.feeSource.startsWith("rule:")) {
     const rule = ((data.settings && data.settings.rules) || []).find((r) => `rule:${r.id}` === c.feeSource);
     return rule ? `Fee from the rule ${ruleSummary(rule)}.` : "Fee from a rule that has since been deleted.";
@@ -545,11 +549,18 @@ byId("export-profiles").addEventListener("click", () => {
 
 async function loadSettings() {
   data.settings = await api("GET", "/api/admin/settings");
+  const types = data.settings.feeTypes || {};
   byId("fee-fields").innerHTML = Object.entries(data.settings.fees).map(([r, fee]) => `
-    <label>
-      ${escape(r === "Other" ? "Any other retailer" : r)}
-      <input name="${escape(r)}" type="number" min="0" step="0.01" value="${fee}">
-    </label>`).join("");
+    <div class="fee-field">
+      <label for="fee-${escape(r)}">${escape(r === "Other" ? "Any other retailer" : r)}</label>
+      <div class="fee-input">
+        <input id="fee-${escape(r)}" data-fee="${escape(r)}" type="number" min="0" step="0.01" value="${fee}">
+        <select data-fee-type="${escape(r)}" aria-label="${escape(r === "Other" ? "Other retailers" : r)} fee type">
+          <option value="flat" ${types[r] !== "percent" ? "selected" : ""}>$ per checkout</option>
+          <option value="percent" ${types[r] === "percent" ? "selected" : ""}>% of price</option>
+        </select>
+      </div>
+    </div>`).join("");
   // Don't wipe rule edits that haven't been saved yet.
   if (!rulesDirty) renderRules(data.settings.rules);
   renderExport();
@@ -704,9 +715,10 @@ byId("apply-rules").addEventListener("click", async (e) => {
 
 byId("fees-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const fees = Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, Number(v || 0)]));
+  const fees = Object.fromEntries([...e.target.querySelectorAll("[data-fee]")].map((el) => [el.dataset.fee, Number(el.value || 0)]));
+  const feeTypes = Object.fromEntries([...e.target.querySelectorAll("[data-fee-type]")].map((el) => [el.dataset.feeType, el.value]));
   try {
-    await api("PUT", "/api/admin/settings", { fees });
+    await api("PUT", "/api/admin/settings", { fees, feeTypes });
     notify("Fees saved. New checkouts use them.");
     loadSettings();
   } catch (err) {
