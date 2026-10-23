@@ -122,6 +122,12 @@ def init() -> None:
         for column, decl in (("sku", "TEXT NOT NULL DEFAULT ''"), ("fee_source", "TEXT NOT NULL DEFAULT ''")):
             if column not in have:
                 conn.execute(f"ALTER TABLE checkouts ADD COLUMN {column} {decl}")
+        # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
+        # Dev sign-ins (dev-*) pick their own flag and are left alone.
+        for row in conn.execute("SELECT id, discord_id, is_admin FROM users WHERE discord_id NOT LIKE 'dev-%'").fetchall():
+            is_admin = int(row["discord_id"] in config.ADMIN_DISCORD_IDS)
+            if row["is_admin"] != is_admin:
+                conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (is_admin, row["id"]))
 
 
 def now() -> int:
