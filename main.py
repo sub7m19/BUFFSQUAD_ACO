@@ -45,6 +45,8 @@ OAUTH_COOKIE = "bs_oauth"
 PUBLIC_EXT = {".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".webp", ".woff2"}
 PRIVATE_DIRS = {"data", "tests", ".venv", ".idea", ".git", ".claude", "__pycache__"}
 ADMIN_FILES = {"/admin.html", "/admin.js", "/admin.css"}
+# Only for signed-in members; anyone else goes straight to Discord sign-in.
+MEMBER_PAGES = {"/dashboard_proto_type.html"}
 
 
 def check_gmail(email: str, password: str) -> tuple[bool, str]:
@@ -129,9 +131,13 @@ class Handler(SimpleHTTPRequestHandler):
     # Plumbing
 
     revalidate = False
+    private_page = False
 
     def end_headers(self) -> None:
-        if self.revalidate:
+        if self.private_page:
+            # Signed-in pages: never kept by the browser, so Back after signing out shows nothing.
+            self.send_header("Cache-Control", "no-store")
+        elif self.revalidate:
             self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
@@ -291,15 +297,16 @@ class Handler(SimpleHTTPRequestHandler):
         if path != "/" and (private or target.suffix.lower() not in PUBLIC_EXT):
             self.send_error(404)
             return
-        if path in ADMIN_FILES:
+        if path in ADMIN_FILES or path in MEMBER_PAGES:
             with db.transaction() as conn:
                 user = self.current_user(conn)
             if not user:
-                self.redirect("/auth/discord/login?" + urlencode({"next": "/admin"}))
+                self.redirect("/auth/discord/login?" + urlencode({"next": "/admin" if path in ADMIN_FILES else "/dashboard"}))
                 return
-            if not user["is_admin"]:
+            if path in ADMIN_FILES and not user["is_admin"]:
                 self.send_error(403)
                 return
+            self.private_page = True
         # Files change with each deploy: browsers check back (and get a 304 if unchanged).
         self.revalidate = True
         super().do_HEAD() if method == "HEAD" else super().do_GET()

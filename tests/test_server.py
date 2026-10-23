@@ -81,7 +81,7 @@ class ServerTest(ServerCase):
             with self.subTest(path=path):
                 self.assertEqual(c.request("GET", path)[0], 404)
         self.assertEqual(c.request("GET", "/index.html")[0], 200)
-        self.assertEqual(c.request("GET", "/dashboard")[0], 200)
+        self.assertEqual(c.request("GET", "/dashboard.js")[0], 200)
 
     def test_admin_page_needs_admin(self):
         status, _, headers = self.client().request("GET", "/admin")
@@ -261,6 +261,17 @@ class ServerTest(ServerCase):
             self.assertEqual(me["settings"]["profiles"], [])
         finally:
             db.transaction = real
+
+    def test_dashboard_only_for_signed_in_members(self):
+        for path in ("/dashboard", "/dashboard_proto_type.html"):
+            with self.subTest(path=path):
+                status, _, headers = self.client().request("GET", path)
+                self.assertEqual(status, 302)
+                self.assertIn("/auth/discord/login?next=%2Fdashboard", headers["Location"])
+        status, page, headers = self.client().login("gwen").request("GET", "/dashboard")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Welcome back", page)
+        self.assertEqual(headers["Cache-Control"], "no-store")  # Back button can't show it after signing out
 
     def test_checkout_channels(self):
         admin = self.client().login("chief", admin=True)
