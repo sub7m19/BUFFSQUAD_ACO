@@ -100,6 +100,15 @@ def _qty(text: str) -> int:
     return max(1, int(m.group())) if m else 1
 
 
+LEADING_QTY = re.compile(r"^(\d{1,3})\s*[x×]\s+(\S.*)$", re.I)
+
+
+def split_qty(product: str) -> tuple[str, str]:
+    """'2x Pokémon Booster Bundle' -> ('2', 'Pokémon Booster Bundle'). No count in front: ('', product)."""
+    m = LEADING_QTY.match(product or "")
+    return (m.group(1), m.group(2)) if m and int(m.group(1)) > 0 else ("", product)
+
+
 def _source(*texts: str) -> str:
     joined = " ".join(t for t in texts if t).lower()
     for bot in BOTS:
@@ -137,6 +146,10 @@ def parse_embed(embed: dict, content: str = "", sender: str = ""):
     # Some bots put the product in the title and the status in the author line.
     if not product and title and not SUCCESS.search(title) and not FAILURE.search(title) and not CHECKOUT_WORD.search(title):
         product = title
+    qty = found.get("qty", "")
+    # Bots without a Quantity field (Polar) lead the product with it instead: "2x Pokémon ...".
+    if not qty and product:
+        qty, product = split_qty(product)
 
     return {
         "status": status,
@@ -144,7 +157,7 @@ def parse_embed(embed: dict, content: str = "", sender: str = ""):
         "product": product or "",
         "retailer": retailer_name(found.get("site", "")),
         "price": _price(found.get("price", "")),
-        "qty": _qty(found.get("qty", "")),
+        "qty": _qty(qty),
         "order": found.get("order", "").lstrip("#").strip(),
         "size": found.get("size", ""),
         "sku": found.get("sku", ""),

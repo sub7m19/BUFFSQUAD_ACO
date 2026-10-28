@@ -82,8 +82,17 @@ class ParseCheckouts(unittest.TestCase):
             ("Price", "$63.98"), ("Size", "Default"), ("Site", "Target"), ("Profile", "jake-main"),
             ("Order Number", "102003841766417"), ("Fraud Status", "REVIEW_HOLD")])
         [c] = parse_message({"embeds": [polar]})
-        self.assertEqual(c["product"], "2x Pokémon Trading Card Game: 30th Celebration Booster Bundle Box - Default")
-        self.assertEqual((c["source"], c["retailer"], c["price"]), ("Polar", "Target", 63.98))
+        # Polar has no Quantity field; the "2x" in front of the product is the quantity.
+        self.assertEqual(c["product"], "Pokémon Trading Card Game: 30th Celebration Booster Bundle Box - Default")
+        self.assertEqual((c["qty"], c["source"], c["retailer"], c["price"]), (2, "Polar", "Target", 63.98))
+
+    def test_leading_count_only_without_a_quantity_field(self):
+        with_field = embed(title="Successful Checkout", fields=[("Product", "2x Booster Bundle"), ("Quantity", "3"), ("Profile", "jake-main")])
+        [c] = parse_message({"embeds": [with_field]})
+        self.assertEqual((c["qty"], c["product"]), (3, "2x Booster Bundle"))
+        plain = embed(title="Successful Checkout", fields=[("Product", "151 Booster Bundle"), ("Profile", "jake-main")])
+        [c] = parse_message({"embeds": [plain]})
+        self.assertEqual((c["qty"], c["product"]), (1, "151 Booster Bundle"))
 
 
 if __name__ == "__main__":

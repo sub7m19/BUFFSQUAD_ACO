@@ -303,7 +303,7 @@ function renderCheckouts() {
       <span class="avatar">${escape(initials(c.retailer))}</span>
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
-        <span>${escape(c.retailer)}${c.order ? ` · #${escape(c.order)}` : ""} · ${escape(c.date)}</span>
+        <span>${escape(c.retailer)}${c.qty > 1 ? ` · Qty ${c.qty}` : ""}${c.order ? ` · #${escape(c.order)}` : ""} · ${escape(c.date)}</span>
       </div>
       <span class="stage ${STAGES[c.stage].tone}">${icon(STAGES[c.stage].icon)}${STAGES[c.stage].label}</span>
       <div class="checkout-fee">

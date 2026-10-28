@@ -473,10 +473,10 @@ class UpgradeTest(unittest.TestCase):
             db.init()
             with db.transaction() as conn:
                 have = {r["name"] for r in conn.execute("PRAGMA table_info(checkouts)")}
-                product = conn.execute("SELECT product FROM checkouts").fetchone()["product"]
+                row = conn.execute("SELECT product, qty FROM checkouts").fetchone()
             self.assertTrue({"sku", "fee_source", "feed_status"} <= have)
-            # Saved before the parser decoded Polar's HTML codes: fixed on startup.
-            self.assertEqual(product, "2x Pokémon Booster Bundle - Default")
+            # Saved before the parser decoded Polar's HTML codes and read "2x" as the quantity: fixed on startup.
+            self.assertEqual((row["product"], row["qty"]), ("Pokémon Booster Bundle - Default", 2))
         finally:
             config.DB_PATH = saved
 

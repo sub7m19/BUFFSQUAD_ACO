@@ -16,6 +16,7 @@ import time
 
 from cryptography.fernet import Fernet, InvalidToken
 
+import checkout_parser
 import config
 
 SCHEMA = """
@@ -132,6 +133,12 @@ def init() -> None:
             fixed = re.sub(r"^\s*[-•]\s+", "", html.unescape(row["product"]))
             if fixed != row["product"]:
                 conn.execute("UPDATE checkouts SET product = ? WHERE id = ?", (fixed, row["id"]))
+        # ...and before it read Polar's "2x Pokémon ..." as quantity 2. Only rows still at qty 1,
+        # so a quantity an admin set by hand stays put.
+        for row in conn.execute("SELECT id, product FROM checkouts WHERE qty = 1 AND product GLOB '[0-9]*'").fetchall():
+            qty, product = checkout_parser.split_qty(row["product"])
+            if qty:
+                conn.execute("UPDATE checkouts SET qty = ?, product = ? WHERE id = ?", (int(qty), product, row["id"]))
         # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
         # Dev sign-ins (dev-*) pick their own flag and are left alone.
         for row in conn.execute("SELECT id, discord_id, is_admin FROM users WHERE discord_id NOT LIKE 'dev-%'").fetchall():

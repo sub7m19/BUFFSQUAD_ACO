@@ -88,7 +88,7 @@ function checkoutRow(c, selectable = false) {
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
         <span>${who}</span>
-        <span>${escape(c.retailer)}${c.order ? ` · #${escape(c.order)}` : ""} · ${escape(c.date)}${c.source ? ` · ${escape(c.source)}` : ""}${dm ? ` · <i class="dm ${dm[1]}" title="${escape(c.dmError)}">${dm[0]}</i>` : ""}</span>
+        <span>${escape(c.retailer)}${c.qty > 1 ? ` · Qty ${c.qty}` : ""}${c.order ? ` · #${escape(c.order)}` : ""} · ${escape(c.date)}${c.source ? ` · ${escape(c.source)}` : ""}${dm ? ` · <i class="dm ${dm[1]}" title="${escape(c.dmError)}">${dm[0]}</i>` : ""}</span>
       </div>
       ${c.result === "miss" ? "" : stagePill(c)}
       <div class="checkout-fee">
