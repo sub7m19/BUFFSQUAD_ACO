@@ -4315,6 +4315,28 @@ a.tile:hover {
   cursor: pointer;
 }
 
+/* Dashboard: the version sits on a small line under the BUFFSQUAD ACO name */
+.sidebar-head {
+  position: relative;
+}
+
+.sidebar-head:has(.version-pill:not([hidden])) .brand > span:last-child {
+  transform: translateY(-6px);
+}
+
+.version-pill {
+  position: absolute;
+  top: 50%;
+  left: 44px;
+  transform: translateY(1px);
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+}
+
+.version-pill.fresh {
+  text-shadow: 0 0 10px rgba(35, 206, 217, 0.6);
+}
+
 @media (max-width: 720px) {
   .app-version {
     display: none;

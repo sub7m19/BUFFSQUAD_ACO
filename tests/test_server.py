@@ -226,6 +226,19 @@ class ServerTest(ServerCase):
         self.assertEqual(self.client().login("vermember").request("GET", "/api/version")[0], 403)
         self.assertEqual(self.client().request("GET", "/api/version")[0], 401)
 
+    def test_pages_link_this_versions_files(self):
+        # A new deploy changes these links, so no cache can keep serving the old files.
+        main.VERSION, saved = "abc1234", main.VERSION
+        try:
+            _, page, _ = self.client().request("GET", "/index.html")
+            self.assertIn(b'href="styles.css?v=abc1234"', page)
+            self.assertIn(b'href="https://fonts.googleapis.com/css2?family=Inter', page)
+            _, page, headers = self.client().login("verpage").request("GET", "/dashboard")
+            self.assertIn(b'src="dashboard.js?v=abc1234"', page)
+            self.assertEqual(headers["Cache-Control"], "no-store")
+        finally:
+            main.VERSION = saved
+
     def test_health_check(self):
         status, health, _ = self.client().request("GET", "/api/health")
         self.assertEqual((status, health["ok"]), (200, True))

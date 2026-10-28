@@ -60,6 +60,8 @@ OAUTH_COOKIE = "bs_oauth"
 PUBLIC_EXT = {".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".webp", ".woff2"}
 PRIVATE_DIRS = {"data", "tests", ".venv", ".idea", ".git", ".claude", "__pycache__"}
 ADMIN_FILES = {"/admin.html", "/admin.js", "/admin.css"}
+# This site's own .css and .js links in a page (not https:// ones), for send_html.
+ASSET_LINK = re.compile(r'\b(href|src)="((?![a-z]+:|/)[^"?#]+\.(?:css|js))"')
 # Only for signed-in members; anyone else goes straight to Discord sign-in.
 MEMBER_PAGES = {"/dashboard_proto_type.html"}
 
@@ -348,7 +350,17 @@ class Handler(SimpleHTTPRequestHandler):
             self.private_page = True
         # Files change with each deploy: browsers check back (and get a 304 if unchanged).
         self.revalidate = True
+        if target.suffix.lower() == ".html" and VERSION and target.is_file():
+            self.send_html(target)
+            return
         super().do_HEAD() if method == "HEAD" else super().do_GET()
+
+    def send_html(self, target: Path) -> None:
+        """A page with its own stylesheets and scripts linked as name.css?v=<commit>.
+        Each deploy changes those links, so browsers and Cloudflare fetch the new
+        files instead of serving copies they kept from before."""
+        text = ASSET_LINK.sub(lambda m: f'{m.group(1)}="{m.group(2)}?v={VERSION}"', target.read_text(encoding="utf-8"))
+        self.respond(200, [("Content-Type", "text/html; charset=utf-8")], text.encode())
 
     def list_directory(self, path):
         self.send_error(404)

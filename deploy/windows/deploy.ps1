@@ -56,6 +56,30 @@ function Start-App {
 
 function Restart-App { Stop-App; Start-App }
 
+# After a deploy: load the public splash page through Cloudflare, the way members
+# see it, and check it links this version's files, and that Cloudflare doesn't
+# tell browsers to keep them (Browser Cache TTL should be "Respect Existing Headers").
+function Test-Public($version) {
+  $line = Get-Content "$Root\buffsquad.env" -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*PUBLIC_URL\s*=' } | Select-Object -First 1
+  $url = if ($line) { ($line -split '=', 2)[1].Trim().Trim('"', "'").TrimEnd('/') } else { "" }
+  if (-not $url -or $url -like "http://127.0.0.1*" -or -not $version) { return }
+  try {
+    $page = Invoke-WebRequest "$url/index.html" -UseBasicParsing -TimeoutSec 15 -Headers @{ "Cache-Control" = "no-cache" }
+    if ($page.Content -notmatch [regex]::Escape("styles.css?v=$version")) {
+      Log "Warning: $url still shows an older version. Check Cloudflare: Caching > Cache Rules shouldn't cache HTML, and Caching Level should be Standard"
+      return
+    }
+    $css = Invoke-WebRequest "$url/styles.css?v=$version" -UseBasicParsing -TimeoutSec 15 -Method Head
+    if ($css.Headers["Cache-Control"] -notmatch "no-cache") {
+      Log "Warning: Cloudflare sends '$($css.Headers["Cache-Control"])' for site files. Set Caching > Configuration > Browser Cache TTL to 'Respect Existing Headers'"
+      return
+    }
+    Log "Checked $url`: members get $version"
+  } catch {
+    Log "Couldn't check $url after deploying: $($_.Exception.Message)"
+  }
+}
+
 # One run at a time (a deploy can take longer than a minute).
 $lock = "$Root\deploy.lock"
 if ((Test-Path $lock) -and (Get-Item $lock).LastWriteTime -gt (Get-Date).AddMinutes(-15)) { exit 0 }
@@ -104,7 +128,9 @@ try {
     Log "Tests passed, deploying $($latest.Substring(0, 7))"
     & $Git -C $App reset --hard --quiet $latest
     if (Restart-App) {
-      Log "Live: $((Get-Health).version)"
+      $version = (Get-Health).version
+      Log "Live: $version"
+      Test-Public $version
     } else {
       Log "New version didn't start, going back to $($current.Substring(0, 7)). See $Root\logs\app.log"
       & $Git -C $App reset --hard --quiet $current

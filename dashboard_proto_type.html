@@ -48,10 +48,13 @@
 
   <div class="app">
     <aside class="sidebar">
-      <a class="brand" href="index.html" aria-label="BUFFSQUAD ACO home">
-        <span class="brand-mark">BS</span>
-        <span>BUFFSQUAD ACO</span>
-      </a>
+      <div class="sidebar-head">
+        <a class="brand" href="index.html" aria-label="BUFFSQUAD ACO home">
+          <span class="brand-mark">BS</span>
+          <span>BUFFSQUAD ACO</span>
+        </a>
+        <button class="app-version version-pill" type="button" id="app-version" hidden></button>
+      </div>
       <nav class="nav" aria-label="Dashboard">
         <a href="#home" data-route="home"><svg class="icon"><use href="#i-home"/></svg><span>Home</span></a>
         <a href="#checkouts" data-route="checkouts"><svg class="icon"><use href="#i-bag"/></svg><span>Checkouts</span></a>
@@ -63,7 +66,6 @@
       <div class="sidebar-foot">
         <a class="button ghost small" href="https://discord.gg/7SGtgcEq" target="_blank" rel="noreferrer" data-discord><svg class="icon"><use href="#i-chat"/></svg>Discord<svg class="icon ext" aria-hidden="true"><use href="#i-ext"/></svg><span class="sr-only"> (opens in new tab)</span></a>
         <a class="button ghost small member-view" href="/admin" title="Admin panel" id="admin-link" hidden><svg class="icon"><use href="#i-lock"/></svg><span>Admin panel</span></a>
-        <button class="app-version" type="button" id="app-version" hidden></button>
         <div class="user-chip">
           <span class="avatar round" id="user-avatar">M</span>
           <span class="user-name">

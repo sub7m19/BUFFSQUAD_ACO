@@ -1437,8 +1437,8 @@ async function checkVersion() {
     const at = new Date(v.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     label.hidden = false;
     label.classList.toggle("fresh", fresh);
-    label.textContent = fresh ? `v${v.number} is live · Reload` : `v${v.number} · ${v.commit}`;
-    label.title = `Updated ${at}: ${v.subject}`;
+    label.textContent = fresh ? `↻ v${v.number}` : `v${v.number}`;
+    label.title = fresh ? `v${v.number} is live. Click to reload.` : `${v.commit} · updated ${at}: ${v.subject}`;
   } catch {
     // Offline for a moment: try again next time.
   }
