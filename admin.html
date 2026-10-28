@@ -50,10 +50,13 @@
 
   <div class="app">
     <aside class="sidebar">
-      <a class="brand" href="index.html" aria-label="BUFFSQUAD ACO home">
-        <span class="brand-mark">BS</span>
-        <span>BUFFSQUAD ADMIN</span>
-      </a>
+      <div class="sidebar-head">
+        <a class="brand" href="index.html" aria-label="BUFFSQUAD ACO home">
+          <span class="brand-mark">BS</span>
+          <span>BUFFSQUAD ADMIN</span>
+        </a>
+        <button class="app-version version-pill" type="button" id="app-version" hidden></button>
+      </div>
       <nav class="nav" aria-label="Admin">
         <a href="#overview" data-route="overview"><svg class="icon"><use href="#i-home"/></svg><span>Overview</span></a>
         <a href="#checkouts" data-route="checkouts"><svg class="icon"><use href="#i-bag"/></svg><span>Checkouts</span><b class="nav-badge due" id="nav-unmatched" hidden></b></a>
@@ -65,7 +68,6 @@
       </nav>
       <div class="sidebar-foot">
         <a class="button ghost small member-view" href="/dashboard" title="Member view"><svg class="icon"><use href="#i-user"/></svg><span>Member view</span></a>
-        <button class="app-version" type="button" id="app-version" hidden></button>
         <div class="user-chip">
           <span class="avatar round" id="user-avatar">A</span>
           <span class="user-name"><strong id="user-chip-name">Admin</strong></span>

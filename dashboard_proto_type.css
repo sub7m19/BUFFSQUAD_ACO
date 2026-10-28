@@ -4315,7 +4315,7 @@ a.tile:hover {
   cursor: pointer;
 }
 
-/* Dashboard: the version sits on a small line under the BUFFSQUAD ACO name */
+/* Dashboard and admin panel: the version sits on a small line under the BUFFSQUAD name */
 .sidebar-head {
   position: relative;
 }

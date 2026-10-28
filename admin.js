@@ -1000,8 +1000,8 @@ async function checkVersion() {
   const fresh = v.commit !== loadedVersion;
   label.hidden = false;
   label.classList.toggle("fresh", fresh);
-  label.textContent = fresh ? `v${v.number} is live · Reload` : `v${v.number} · ${v.commit}`;
-  label.title = `Updated ${when(v.at)}: ${v.subject}`;
+  label.textContent = fresh ? `↻ v${v.number}` : `v${v.number}`;
+  label.title = fresh ? `v${v.number} is live. Click to reload.` : `${v.commit} · updated ${when(v.at)}: ${v.subject}`;
 }
 
 byId("app-version").addEventListener("click", (e) => {
