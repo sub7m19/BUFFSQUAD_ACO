@@ -241,6 +241,37 @@ class ServerTest(ServerCase):
             self.assertIsNone(owner(db.record_checkout(conn, {"status": "success", "profile": "Shared4-%77"}, message_key="jig2:0")))
             conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'jig%'")
 
+    def test_prices_across_bots(self):
+        etb, ko = "Pokémon TCG: Price Test Elite Trainer Box", "Pokémon TCG: Price Test Knock Out Collection"
+        with db.transaction() as conn:
+            def add(key, **row):
+                conn.execute("""INSERT INTO checkouts (product, retailer, qty, price, fee, fee_source, result, source, message_key,
+                                order_no, created_at) VALUES (?, ?, ?, ?, 0, 'default', 'hit', ?, ?, ?, ?)""",
+                             (row["product"], row["retailer"], row["qty"], row["price"], row["source"], key, row["order"], db.now() - 600))
+                return conn.execute("SELECT id FROM checkouts WHERE message_key = ?", (key,)).fetchone()["id"]
+            # As they were logged before: Refract's with no bot or store and the price of one item.
+            refract = add("price0", product=etb, retailer="Unknown", qty=2, price=69.99, source="", order="102003841860229")
+            refract_free = add("price1", product=ko, retailer="Unknown", qty=2, price=0, source="", order="102003841860230")
+            polar = add("price2", product=ko + " - Default", retailer="Target", qty=2, price=23.98, source="Polar", order="902003896119304")
+            db.fix_old_prices(conn)
+            get = lambda cid: conn.execute("SELECT * FROM checkouts WHERE id = ?", (cid,)).fetchone()
+            target_fee = lambda price, qty: db.compute_fee(conn, "Target", etb, "", price, qty)[0]
+            self.assertEqual((get(refract)["source"], get(refract)["retailer"], get(refract)["price"]), ("Refract", "Target", 139.98))
+            self.assertEqual(get(refract)["fee"], target_fee(139.98, 2))
+            self.assertEqual(get(polar)["product"], ko)
+            # Refract's $0 one takes Polar's price for the same item.
+            self.assertEqual((get(refract_free)["price"], get(refract_free)["fee"]), (23.98, target_fee(23.98, 2)))
+
+            # Shikari sends no price: it gets the item's price times its own quantity.
+            shikari = db.record_checkout(conn, {"status": "success", "product": ko, "retailer": "Target", "qty": 3, "source": "Shikari"}, message_key="price3")
+            self.assertEqual(get(shikari)["price"], 35.97)
+            # One that comes in before anyone priced the item is filled in when someone does.
+            early = db.record_checkout(conn, {"status": "success", "product": "Price Test Tin", "retailer": "Target", "qty": 2}, message_key="price4")
+            self.assertEqual(get(early)["price"], 0)
+            db.record_checkout(conn, {"status": "success", "product": "Price Test Tin", "retailer": "Target", "qty": 1, "price": 9.99}, message_key="price5")
+            self.assertEqual(get(early)["price"], 19.98)
+            conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'price%'")
+
     def test_drop_recap(self):
         rio = self.client().login("rio")
         rio.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "id": "r1", "label": "Recap1"}]})
@@ -576,7 +607,7 @@ class UpgradeTest(unittest.TestCase):
                 row = conn.execute("SELECT product, qty FROM checkouts").fetchone()
             self.assertTrue({"sku", "fee_source", "feed_status"} <= have)
             # Saved before the parser decoded Polar's HTML codes and read "2x" as the quantity: fixed on startup.
-            self.assertEqual((row["product"], row["qty"]), ("Pokémon Booster Bundle - Default", 2))
+            self.assertEqual((row["product"], row["qty"]), ("Pokémon Booster Bundle", 2))
         finally:
             config.DB_PATH = saved
 

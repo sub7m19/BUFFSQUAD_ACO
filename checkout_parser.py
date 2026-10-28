@@ -14,6 +14,10 @@ import html
 import re
 
 BOTS = ["Refract", "Shikari", "Valor", "Polar", "Stellar", "Hayha", "Sniped"]
+# Bots that sign their webhooks with another name: Refract's footer says "Prism Technologies".
+BOT_ALIASES = {"prism technologies": "Refract"}
+# Bots whose Price is for one item rather than the whole order.
+PRICE_EACH = {"Refract"}
 
 # Checked before SUCCESS, so "Unsuccessful" or "Checkout failed" count as declines.
 FAILURE = re.compile(r"declin|fail|unsuccess|error|denied|rejected|payment (issue|problem)|card (issue|problem)", re.I)
@@ -75,8 +79,9 @@ def _description_pairs(text: str):
             yield m.group(1), m.group(2)
 
 
-def retailer_name(site: str) -> str:
-    s = (site or "").lower()
+def known_retailer(text: str) -> str:
+    """One of our stores if the text names it, or ''."""
+    s = (text or "").lower()
     if "target" in s:
         return "Target"
     if "pokemon" in s or "pokémon" in s:
@@ -87,7 +92,11 @@ def retailer_name(site: str) -> str:
         return "Amazon"
     if "topps" in s:
         return "Topps"
-    return site.strip()
+    return ""
+
+
+def retailer_name(site: str) -> str:
+    return known_retailer(site) or site.strip()
 
 
 def _price(text: str):
@@ -109,8 +118,24 @@ def split_qty(product: str) -> tuple[str, str]:
     return (m.group(1), m.group(2)) if m and int(m.group(1)) > 0 else ("", product)
 
 
+def is_status(text: str) -> bool:
+    """Whether a line is a headline like "Successful Checkout!" rather than a product."""
+    return bool(SUCCESS.search(text) or FAILURE.search(text) or CHECKOUT_WORD.search(text))
+
+
+def trim_size(product: str, size: str = "") -> str:
+    """'Elite Trainer Box - Default' -> 'Elite Trainer Box'."""
+    for suffix in {"default", (size or "").strip().lower()} - {""}:
+        if product.lower().endswith(f" - {suffix}"):
+            return product[:-len(suffix) - 3].rstrip()
+    return product
+
+
 def _source(*texts: str) -> str:
     joined = " ".join(t for t in texts if t).lower()
+    for alias, bot in BOT_ALIASES.items():
+        if alias in joined:
+            return bot
     for bot in BOTS:
         if bot.lower() in joined:
             return bot
@@ -144,25 +169,36 @@ def parse_embed(embed: dict, content: str = "", sender: str = ""):
 
     product = found.get("product")
     # Some bots put the product in the title and the status in the author line.
-    if not product and title and not SUCCESS.search(title) and not FAILURE.search(title) and not CHECKOUT_WORD.search(title):
+    if not product and title and not is_status(title):
         product = title
+    # Shikari puts it on its own line under the title, in the description.
+    if not product:
+        product = next((clean(line) for line in description.splitlines()
+                        if clean(line) and not is_status(clean(line)) and not list(_description_pairs(line))), "")
     qty = found.get("qty", "")
     # Bots without a Quantity field (Polar) lead the product with it instead: "2x Pokémon ...".
     if not qty and product:
         qty, product = split_qty(product)
+    # Polar adds the size to the product: "... Elite Trainer Box - Default".
+    product = trim_size(product or "", found.get("size", ""))
+    source = _source(author, footer, title, content, sender)
+    price = _price(found.get("price", ""))
+    if price and source in PRICE_EACH:
+        price = round(price * _qty(qty), 2)
 
     return {
         "status": status,
         "profile": found.get("profile", ""),
         "product": product or "",
-        "retailer": retailer_name(found.get("site", "")),
-        "price": _price(found.get("price", "")),
+        # Refract has no Site field; its title ends with the store: "Successful Checkout | Target".
+        "retailer": retailer_name(found["site"]) if found.get("site") else known_retailer(title.rpartition("|")[2] if "|" in title else ""),
+        "price": price,
         "qty": _qty(qty),
         "order": found.get("order", "").lstrip("#").strip(),
         "size": found.get("size", ""),
         "sku": found.get("sku", ""),
         "email": found.get("email", ""),
-        "source": _source(author, footer, title, content, sender),
+        "source": source,
     }
 
 

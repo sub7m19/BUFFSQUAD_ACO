@@ -140,6 +140,9 @@ def init() -> None:
             if qty:
                 conn.execute("UPDATE checkouts SET qty = ?, product = ? WHERE id = ?", (int(qty), product, row["id"]))
         rematch_checkouts(conn)
+        if not kv_get(conn, "fixed_prices_v1"):
+            fix_old_prices(conn)
+            kv_set(conn, "fixed_prices_v1", now())
         # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
         # Dev sign-ins (dev-*) pick their own flag and are left alone.
         for row in conn.execute("SELECT id, discord_id, is_admin FROM users WHERE discord_id NOT LIKE 'dev-%'").fetchall():
@@ -447,6 +450,60 @@ def wants_checkout_dm(conn, user_id) -> bool:
     return (settings.get("notify") or {}).get("checkout", True) is not False
 
 
+def product_key(product: str) -> str:
+    """The same item from every bot reads the same: Polar's ' - Default' and case,
+    spaces and punctuation don't count."""
+    return _norm(checkout_parser.trim_size(product or ""))
+
+
+def item_price(conn, product: str, sku: str = ""):
+    """What one of this item cost the last time a bot sent a price for it (Polar
+    sends the order total, so it's the total over the quantity), or None."""
+    key = product_key(product)
+    if not key and not sku:
+        return None
+    for row in conn.execute("""SELECT product, sku, price, qty FROM checkouts WHERE result = 'hit' AND price > 0
+                               ORDER BY created_at DESC LIMIT 500"""):
+        if (sku and row["sku"] == sku) or (key and product_key(row["product"]) == key):
+            return row["price"] / max(1, row["qty"])
+    return None
+
+
+def fill_prices(conn) -> int:
+    """Prices unpaid checkouts that came in without one (Shikari sends none, Refract
+    sometimes $0) from the item's last known price, and redoes their fee. Returns how many."""
+    count = 0
+    for c in conn.execute("""SELECT * FROM checkouts WHERE result = 'hit' AND paid = 0 AND stage != 'canceled'
+                             AND (price IS NULL OR price = 0)""").fetchall():
+        each = item_price(conn, c["product"], c["sku"])
+        if not each:
+            continue
+        price = round(each * max(1, c["qty"]), 2)
+        fee, fee_source = (c["fee"], c["fee_source"]) if c["fee_source"] == "manual" else             compute_fee(conn, c["retailer"], c["product"], c["sku"], price, c["qty"])
+        conn.execute("UPDATE checkouts SET price = ?, fee = ?, fee_source = ? WHERE id = ?", (price, fee, fee_source, c["id"]))
+        count += 1
+    return count
+
+
+def fix_old_prices(conn) -> None:
+    """One time: checkouts logged before the bot read Refract's and Polar's formats.
+    Refract's (no bot name or store, as it signs itself "Prism Technologies" and only
+    names the store in its title) get Target, as its title said, and their per-item
+    price times the quantity. Polar's lose the ' - Default' ending. Then missing prices
+    are filled in. Fees are redone only on the unpaid checkouts this changes."""
+    for c in conn.execute("""SELECT * FROM checkouts WHERE source = '' AND retailer = 'Unknown'
+                             AND message_key IS NOT NULL AND order_no GLOB '[0-9]*'""").fetchall():
+        price = round((c["price"] or 0) * max(1, c["qty"]), 2)
+        fee, fee_source = (c["fee"], c["fee_source"])
+        if not c["paid"] and c["stage"] != "canceled" and c["fee_source"] != "manual" and c["result"] == "hit":
+            fee, fee_source = compute_fee(conn, "Target", c["product"], c["sku"], price, c["qty"])
+        conn.execute("UPDATE checkouts SET source = 'Refract', retailer = 'Target', price = ?, fee = ?, fee_source = ? WHERE id = ?",
+                     (price, fee, fee_source, c["id"]))
+    for c in conn.execute("SELECT id, product FROM checkouts WHERE product LIKE '% - Default'").fetchall():
+        conn.execute("UPDATE checkouts SET product = ? WHERE id = ?", (checkout_parser.trim_size(c["product"]), c["id"]))
+    fill_prices(conn)
+
+
 def record_checkout(conn, parsed: dict, message_key: str | None = None, channel_id: str | None = None,
                     user_id=None, source: str = "", notify: bool = True):
     """Save a checkout (or a miss) from the bot or an admin. Matches the profile name
@@ -463,6 +520,10 @@ def record_checkout(conn, parsed: dict, message_key: str | None = None, channel_
     hit = parsed.get("status", "success") == "success"
     product, sku = parsed.get("product") or "", parsed.get("sku") or ""
     qty, price = int(parsed.get("qty") or 1), float(parsed.get("price") or 0)
+    if hit and not price:
+        # No price from the bot: use what the same item cost on another bot's checkout.
+        each = item_price(conn, product, sku)
+        price = round(each * qty, 2) if each else 0
     fee = parsed.get("fee")
     if not hit:
         fee, fee_source = 0, ""
@@ -482,6 +543,9 @@ def record_checkout(conn, parsed: dict, message_key: str | None = None, channel_
         (user_id, profile_name, product, retailer, parsed.get("order") or "", parsed.get("size") or "", sku,
          qty, price, float(fee), fee_source, "hit" if hit else "miss", source or parsed.get("source") or "",
          message_key, channel_id, now(), dm, feed))
+    if hit and price:
+        # Earlier checkouts of this item that came in without a price get this one's.
+        fill_prices(conn)
     return cur.lastrowid
 
 

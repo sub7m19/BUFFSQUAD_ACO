@@ -11,12 +11,15 @@ def embed(title="", description="", author="", footer="", fields=()):
 
 
 SAMPLES = {
-    "Refract": embed(title="Successful Checkout", footer="Refract", fields=[
-        ("Site", "Target"), ("Product", "Prismatic Evolutions Elite Trainer Box"), ("Price", "$54.99"),
-        ("Quantity", "2"), ("Profile", "||jake-main||"), ("Order Number", "||#912004417||")]),
-    "Shikari": embed(title="Checkout Success :tada:", author="Shikari", fields=[
-        ("Store", "Pokemon Center"), ("Item", "[Pokemon 151 Booster Bundle](https://www.pokemoncenter.com/x)"),
-        ("Total", "$29.99"), ("Profile Name", "`jake-main`"), ("Order #", "P001234567")]),
+    # As Refract posts it: signed "Prism Technologies", the store only in the title, Price for one item.
+    "Refract": embed(title="Successful Checkout | Target", footer="Prism Technologies - 1.56.1 (1.0.149)", fields=[
+        ("Product", "[Pokémon Trading Card Game: 30th Celebration Elite Trainer Box](https://www.target.com/p/x)"),
+        ("Price", "$69.99"), ("Profile", "jake-main"), ("Proxy Details", "||1.2.3.4||"), ("Quantity", "2"),
+        ("Order Number", "102003841860229"), ("Fraud Status", "SUCCESS"), ("Harvester", "buffloved 8"), ("Email", "j@x.com")]),
+    # As Shikari posts it: the product is a link on its own line under the title, and there's no price.
+    "Shikari": embed(title="Successful Checkout!", author="Shikari", footer="@shikaritech",
+                     description="[Pokémon Trading Card Game: 30th Celebration Knock Out Collection](https://www.target.com/p/x)",
+                     fields=[("Site", "Target"), ("Profile", "jake-main"), ("Order ID", "912003841971019"), ("Quantity", "2"), ("Proxy", "1.2.3.4")]),
     "Valor": embed(title="Surging Sparks Booster Box", author="Valor | Successful Checkout!", footer="Valor AIO", fields=[
         ("Site", "Target US"), ("Price", "159.99"), ("Mode", "Fast"), ("Profile", "||Jake-Main||"), ("Qty", "1")]),
     "Polar": embed(title="Polar | Successfully Checked Out", fields=[
@@ -43,11 +46,13 @@ class ParseCheckouts(unittest.TestCase):
                 self.assertEqual(c["source"], bot)
 
     def test_fields(self):
+        # Refract's $69.99 is for one item: the order total is 2 x $69.99.
         [c] = parse_message({"embeds": [SAMPLES["Refract"]]})
-        self.assertEqual((c["price"], c["qty"], c["order"]), (54.99, 2, "912004417"))
+        self.assertEqual((c["price"], c["qty"], c["order"], c["retailer"], c["source"]), (139.98, 2, "102003841860229", "Target", "Refract"))
+        self.assertEqual(c["product"], "Pokémon Trading Card Game: 30th Celebration Elite Trainer Box")
         [c] = parse_message({"embeds": [SAMPLES["Shikari"]]})
-        self.assertEqual(c["product"], "Pokemon 151 Booster Bundle")
-        self.assertEqual(c["order"], "P001234567")
+        self.assertEqual(c["product"], "Pokémon Trading Card Game: 30th Celebration Knock Out Collection")
+        self.assertEqual((c["order"], c["retailer"], c["qty"], c["price"]), ("912003841971019", "Target", 2, None))
 
     def test_product_from_title_when_status_is_in_author(self):
         [c] = parse_message({"embeds": [SAMPLES["Valor"]]})
@@ -83,7 +88,8 @@ class ParseCheckouts(unittest.TestCase):
             ("Order Number", "102003841766417"), ("Fraud Status", "REVIEW_HOLD")])
         [c] = parse_message({"embeds": [polar]})
         # Polar has no Quantity field; the "2x" in front of the product is the quantity.
-        self.assertEqual(c["product"], "Pokémon Trading Card Game: 30th Celebration Booster Bundle Box - Default")
+        # Its " - Default" size ending is trimmed, so the same item from every bot reads the same.
+        self.assertEqual(c["product"], "Pokémon Trading Card Game: 30th Celebration Booster Bundle Box")
         self.assertEqual((c["qty"], c["source"], c["retailer"], c["price"]), (2, "Polar", "Target", 63.98))
 
     def test_leading_count_only_without_a_quantity_field(self):
