@@ -9,8 +9,8 @@ item, store, profile name and a tag of the member: none of the order number,
 proxies or other details the AIO bots put in their webhooks.
 
 It also sends DMs the admin panel queues (an unmatched checkout assigned to a
-member, or "Resend DM"), posts drop recaps sent from the admin panel, and catches
-up on messages posted while it was offline.
+member, or "Resend DM"), posts drop recaps sent from the admin panel, DMs fee
+invoices and their reminders, and catches up on messages posted while it was offline.
 
 The channels to watch are set on the admin panel's Channels tab. The bot re-reads
 that list every few seconds, so adding or removing one needs no restart.
@@ -146,6 +146,65 @@ async def send_pending_feed() -> None:
             conn.execute("UPDATE checkouts SET feed_status = ? WHERE id = ?", (status, c["id"]))
 
 
+def invoice_embed(conn, inv, reminder: bool = False) -> discord.Embed:
+    number = db.invoice_number(inv["id"])
+    rows = db.invoice_checkouts(conn, inv["id"])
+    amount = sum(r["fee"] for r in rows)
+    embed = discord.Embed(
+        title=f"Reminder: ACO fee invoice {number} is still open" if reminder else f"ACO fee invoice {number}",
+        description=f"You owe **${amount:,.2f}** for {len(rows)} checkout{'s' if len(rows) != 1 else ''}.", color=0xFCA47C)
+    lines = []
+    for r in rows:
+        qty = f" ×{r['qty']}" if r["qty"] > 1 else ""
+        lines.append(f"{r['product'] or 'Item'}{qty} · ${r['fee']:,.2f}")
+    shown = "\n".join(lines[:15]) + (f"\n…and {len(lines) - 15} more" if len(lines) > 15 else "")
+    embed.add_field(name="Checkouts", value=shown[:1024] or "—", inline=False)
+    pay = db.pay_settings(conn)
+    how = [f"**{name}:** {pay[k]}" for k, name in db.PAY_METHODS.items() if pay[k]]
+    if how:
+        embed.add_field(name="How to pay", value="\n".join(how) + f"\nPut **{number}** in the payment note."
+                        + (f"\n{pay['note']}" if pay["note"] else ""), inline=False)
+    url = f"{config.PUBLIC_URL}/dashboard#billing"
+    if url.startswith("https://"):
+        embed.url = url
+    embed.set_footer(text="BUFFSQUAD ACO · Your invoices are on your dashboard's Billing page")
+    return embed
+
+
+async def send_pending_invoices() -> None:
+    """Sends invoices admins create on the Fees tab, and reminders for ones still open."""
+    with db.transaction() as conn:
+        days = db.pay_settings(conn)["remindDays"]
+        due = conn.execute(
+            """SELECT invoices.*, users.discord_id, 0 AS reminder FROM invoices JOIN users ON users.id = invoices.user_id
+               WHERE invoices.dm_status = 'pending' AND invoices.status != 'void'
+               UNION ALL
+               SELECT invoices.*, users.discord_id, 1 AS reminder FROM invoices JOIN users ON users.id = invoices.user_id
+               WHERE ? > 0 AND invoices.status = 'open' AND invoices.dm_status = 'sent'
+                 AND COALESCE(invoices.reminded_at, invoices.created_at) < ?
+               LIMIT 20""", (days, db.now() - days * 86400)).fetchall()
+        embeds = {(inv["id"], inv["reminder"]): invoice_embed(conn, inv, bool(inv["reminder"])) for inv in due}
+    for inv in due:
+        status, error = "sent", ""
+        try:
+            if not inv["discord_id"].isdigit():
+                raise ValueError("not a Discord account (dev sign-in)")
+            user = client.get_user(int(inv["discord_id"])) or await client.fetch_user(int(inv["discord_id"]))
+            await user.send(embed=embeds[(inv["id"], inv["reminder"])])
+        except discord.Forbidden:
+            status, error = "failed", "Member has DMs closed or doesn't share a server with the bot"
+        except (discord.HTTPException, ValueError) as e:
+            status, error = "failed", str(e)[:200]
+        with db.transaction() as conn:
+            if inv["reminder"]:
+                # Tried either way, so a member with DMs closed isn't retried every 10 seconds.
+                conn.execute("UPDATE invoices SET reminded_at = ? WHERE id = ?", (db.now(), inv["id"]))
+            else:
+                conn.execute("UPDATE invoices SET dm_status = ?, dm_error = ? WHERE id = ?", (status, error, inv["id"]))
+        log.info("Invoice %s %s %s%s", db.invoice_number(inv["id"]), "reminder" if inv["reminder"] else "DM", status,
+                 f": {error}" if error else "")
+
+
 MEDALS = ["🥇", "🥈", "🥉"]
 
 
@@ -273,6 +332,7 @@ async def heartbeat() -> None:
             await send_pending_dms()
             await send_pending_feed()
             await send_pending_recaps()
+            await send_pending_invoices()
         except Exception:  # Keep the loop alive; the next tick retries.
             log.exception("Heartbeat failed")
         await asyncio.sleep(POLL_SECONDS)

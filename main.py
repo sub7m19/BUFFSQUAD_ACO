@@ -543,6 +543,9 @@ def member_payload(conn, user) -> dict:
         "checkouts": [db.checkout_json(r, member_view=True) for r in hits],
         "declined": len(rows) - len(hits),
         "feed": feed,
+        "invoices": [{k: v for k, v in db.invoice_json(conn, i).items() if k in ("number", "status", "amount", "checkouts", "at", "paidAt")}
+                     for i in conn.execute("SELECT * FROM invoices WHERE user_id = ? AND status != 'void' ORDER BY id DESC", (user["id"],))],
+        "pay": {k: v for k, v in db.pay_settings(conn).items() if k != "remindDays" and v},
     }
 
 
@@ -612,6 +615,14 @@ def recap_range(start, end) -> tuple[int, int]:
     if start_s >= end_s or end_s - start_s > 7 * 86400:
         raise AppError(400, "Pick a start time before the end, within the last week.")
     return start_s, end_s
+
+
+def fee_range(start, end) -> tuple[int, int]:
+    """The Fees tab's time filter (ms from the browser) as seconds. None means all time."""
+    try:
+        return int(float(start or 0)) // 1000, int(float(end or 0)) // 1000 or db.now() + 1
+    except (TypeError, ValueError):
+        raise AppError(400, "Bad time range.")
 
 
 # The owner's master log filters: which audit rows each choice shows.
@@ -702,9 +713,10 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
                  COUNT(CASE WHEN dm_status = 'failed' THEN 1 END) AS dm_failed
                FROM checkouts""", (db.now() - 86400,)).fetchone()
         members = conn.execute("SELECT COUNT(*) AS n FROM users WHERE disabled = 0").fetchone()["n"]
+        unpaid = conn.execute("SELECT COUNT(*) AS n FROM invoices WHERE status = 'open'").fetchone()["n"]
         recent = conn.execute(CHECKOUT_SELECT + " ORDER BY checkouts.created_at DESC, checkouts.id DESC LIMIT 8").fetchall()
         return h.send_json(200, {
-            **dict(totals), "members": members, "bot": db.kv_get(conn, "bot_status"), "botError": db.kv_get(conn, "bot_error"),
+            **dict(totals), "members": members, "unpaidInvoices": unpaid, "bot": db.kv_get(conn, "bot_status"), "botError": db.kv_get(conn, "bot_error"),
             "recent": [db.checkout_json(r) for r in recent],
         })
 
@@ -787,9 +799,16 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         if body.get("dryRun"):
             return h.send_json(200, {"count": len(ids)})
         gone = [checkout_label(conn, i) for i in ids[:25]]
+        invoices = set()
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            invoices |= {r["invoice_id"] for r in conn.execute(
+                f"SELECT DISTINCT invoice_id FROM checkouts WHERE invoice_id IS NOT NULL AND id IN ({','.join('?' * len(chunk))})", chunk)}
         for start in range(0, len(ids), 500):
             chunk = ids[start:start + 500]
             conn.execute(f"DELETE FROM checkouts WHERE id IN ({','.join('?' * len(chunk))})", chunk)
+        for invoice_id in invoices:
+            db.sync_invoice(conn, invoice_id, admin["id"])
         scope = "all in view " + (body.get("view") or "hits") + (f", search '{body.get('q')}'" if body.get("q") else "") if body.get("all") else "selected"
         more = f"; and {len(ids) - len(gone)} more" if len(ids) > len(gone) else ""
         db.audit(conn, admin["id"], "checkout.bulk_delete",
@@ -818,6 +837,7 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         if method == "DELETE":
             db.audit(conn, admin["id"], "checkout.delete", checkout_label(conn, item_id, c))
             conn.execute("DELETE FROM checkouts WHERE id = ?", (item_id,))
+            db.sync_invoice(conn, c["invoice_id"], admin["id"])
             return h.send_json(200, {"ok": True})
         if method == "PATCH":
             body = h.body()
@@ -847,6 +867,7 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             if sets:
                 conn.execute(f"UPDATE checkouts SET {', '.join(f'{k} = ?' for k in sets)} WHERE id = ?", [*sets.values(), item_id])
                 db.audit(conn, admin["id"], "checkout.edit", f"{checkout_label(conn, item_id, c)}: {checkout_changes(conn, c, sets)}")
+                db.sync_invoice(conn, c["invoice_id"], admin["id"])
             row = conn.execute(CHECKOUT_SELECT + " WHERE checkouts.id = ?", (item_id,)).fetchone()
             return h.send_json(200, db.checkout_json(row))
 
@@ -1018,6 +1039,79 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         conn.execute("DELETE FROM kv WHERE key IN ('feed_channel', 'bot_feed_channel')")
         db.audit(conn, admin["id"], "feed.clear", "")
         return h.send_json(200, {"ok": True})
+
+    if (method, path) == ("GET", "/api/admin/fees"):
+        start, end = fee_range(q("from"), q("to"))
+        invoices = [db.invoice_json(conn, i) for i in conn.execute(
+            "SELECT * FROM invoices WHERE status != 'void' AND created_at >= ? AND created_at < ? ORDER BY id DESC LIMIT 500", (start, end))]
+        unbilled = [{"userId": r["user_id"], "member": r["name"], "username": r["username"], "checkouts": r["n"],
+                     "items": r["items"], "amount": round(r["fee"], 2), "since": r["since"] * 1000}
+                    for r in conn.execute(f"""SELECT checkouts.user_id, COALESCE(NULLIF(users.display_name, ''), users.username) AS name,
+                                                users.username, COUNT(*) AS n, SUM(checkouts.qty) AS items, SUM(checkouts.fee) AS fee,
+                                                MIN(checkouts.created_at) AS since
+                                              FROM checkouts JOIN users ON users.id = checkouts.user_id
+                                              WHERE {db.UNBILLED} AND checkouts.created_at >= ? AND checkouts.created_at < ?
+                                              GROUP BY checkouts.user_id ORDER BY fee DESC""", (start, end))]
+        return h.send_json(200, {
+            "invoices": invoices, "unbilled": unbilled, "pay": db.pay_settings(conn),
+            "totals": {"owed": round(sum(i["amount"] for i in invoices if i["status"] == "open"), 2),
+                       "paid": round(sum(i["amount"] for i in invoices if i["status"] == "paid"), 2),
+                       "unbilled": round(sum(u["amount"] for u in unbilled), 2)},
+        })
+
+    if (method, path) == ("POST", "/api/admin/invoices"):
+        body = h.body()
+        start, end = fee_range(body.get("from"), body.get("to"))
+        if body.get("all"):
+            users = [r["user_id"] for r in conn.execute(
+                f"SELECT DISTINCT user_id FROM checkouts WHERE {db.UNBILLED} AND created_at >= ? AND created_at < ?", (start, end))]
+        else:
+            users = [_int(body.get("userId"))]
+        made = []
+        for user_id in users:
+            invoice_id = db.create_invoice(conn, user_id, admin["id"], start, end) if user_id else None
+            if invoice_id:
+                inv = db.invoice_json(conn, conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone())
+                made.append(inv)
+                db.audit(conn, admin["id"], "invoice.send",
+                         f"{inv['number']} to {member_name(conn, user_id)}: ${inv['amount']:.2f} for {inv['checkouts']} checkout{'' if inv['checkouts'] == 1 else 's'}")
+        if not made:
+            raise AppError(400, "Nothing to invoice: no unpaid fees that aren't on an invoice already.")
+        return h.send_json(200, {"ok": True, "count": len(made), "total": round(sum(i["amount"] for i in made), 2)})
+
+    m_invoice = re.fullmatch(r"/api/admin/invoices/(\d+)", path)
+    if m_invoice:
+        inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (int(m_invoice.group(1)),)).fetchone()
+        if not inv:
+            raise AppError(404, "No such invoice.")
+        label = f"{db.invoice_number(inv['id'])} for {member_name(conn, inv['user_id'])}"
+        if method == "PATCH":
+            body = h.body()
+            if body.get("status") in ("paid", "open", "void") and body["status"] != inv["status"]:
+                if inv["status"] == "void":
+                    raise AppError(400, "That invoice was voided. Send a new one instead.")
+                amount = db.invoice_json(conn, inv)["amount"]
+                db.set_invoice_status(conn, inv["id"], body["status"], admin["id"])
+                db.audit(conn, admin["id"], f"invoice.{body['status']}", f"{label}: ${amount:.2f}")
+            if body.get("resend"):
+                conn.execute("UPDATE invoices SET dm_status = 'pending', dm_error = '' WHERE id = ?", (inv["id"],))
+                db.audit(conn, admin["id"], "invoice.resend", label)
+            inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (inv["id"],)).fetchone()
+        return h.send_json(200, db.invoice_json(conn, inv, with_checkouts=True))
+
+    if (method, path) == ("PUT", "/api/admin/pay"):
+        body = h.body()
+        pay = {k: str(body.get(k) or "").strip()[:60] for k in db.PAY_METHODS}
+        pay["note"] = str(body.get("note") or "").strip()[:200]
+        try:
+            pay["remindDays"] = max(0, min(30, int(body.get("remindDays") or 0)))
+        except (TypeError, ValueError):
+            raise AppError(400, "Reminder days must be a number.")
+        db.kv_set(conn, "pay", pay)
+        handles = "; ".join(f"{name}: {pay[k]}" for k, name in db.PAY_METHODS.items() if pay[k])
+        db.audit(conn, admin["id"], "settings.pay",
+                 f"{handles or 'no handles'}. Reminders: {'after ' + str(pay['remindDays']) + ' days' if pay['remindDays'] else 'off'}")
+        return h.send_json(200, {"ok": True, "pay": db.pay_settings(conn)})
 
     if (method, path) == ("GET", "/api/admin/recap"):
         start, end = recap_range(q("from"), q("to"))

@@ -61,6 +61,7 @@
       <nav class="nav" aria-label="Admin">
         <a href="#overview" data-route="overview"><svg class="icon"><use href="#i-home"/></svg><span>Overview</span></a>
         <a href="#checkouts" data-route="checkouts"><svg class="icon"><use href="#i-bag"/></svg><span>Checkouts</span><b class="nav-badge due" id="nav-unmatched" hidden></b></a>
+        <a href="#fees" data-route="fees"><svg class="icon"><use href="#i-card"/></svg><span>Fees</span><b class="nav-badge due" id="nav-fees" hidden></b></a>
         <a href="#channels" data-route="channels"><svg class="icon"><use href="#i-hash"/></svg><span>Channels</span><b class="nav-badge due" id="nav-channels" hidden></b></a>
         <a href="#members" data-route="members"><svg class="icon"><use href="#i-user"/></svg><span>Members</span></a>
         <a href="#export" data-route="export"><svg class="icon"><use href="#i-download"/></svg><span>Export</span></a>
@@ -150,6 +151,51 @@
             <span class="empty-icon"><svg class="icon"><use href="#i-bag"/></svg></span>
             <strong>Nothing here</strong>
             <span id="checkouts-empty-text">No checkouts match.</span>
+          </div>
+        </section>
+      </section>
+
+      <!-- Fees: who owes, who has paid, and invoices the bot DMs -->
+      <section class="view" data-view="fees" aria-labelledby="fees-page-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="fees-page-title">ACO fees</h1>
+            <p class="page-sub">Who owes what and who has paid. Invoices go to members as a Discord DM from the bot.</p>
+          </div>
+          <div class="head-actions">
+            <button class="button ghost" type="button" id="open-pay-settings"><svg class="icon"><use href="#i-gear"/></svg>How members pay</button>
+            <button class="button primary" type="button" id="invoice-all"><svg class="icon"><use href="#i-chat"/></svg>Invoice everyone who owes</button>
+          </div>
+        </header>
+
+        <section class="panel" aria-label="Fee totals">
+          <div class="admin-tiles" id="fee-tiles"></div>
+        </section>
+
+        <section class="panel">
+          <div class="toolbar fee-toolbar">
+            <div class="segment tabs admin-tabs" role="group" aria-label="Show" data-filter="fee-view">
+              <button type="button" aria-pressed="true" data-value="unpaid">Unpaid <b id="count-fee-unpaid"></b></button>
+              <button type="button" aria-pressed="false" data-value="paid">Paid</button>
+              <button type="button" aria-pressed="false" data-value="unbilled">Not invoiced <b id="count-fee-unbilled"></b></button>
+              <button type="button" aria-pressed="false" data-value="all">All</button>
+            </div>
+            <label class="fee-range">
+              <span class="sr-only">Time</span>
+              <select id="fee-range">
+                <option value="">All time</option>
+                <option value="today">Today</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+              </select>
+            </label>
+          </div>
+          <p class="field-hint pay-missing" id="pay-missing" hidden>Invoices don't say how to pay yet. Add your Cash App, Zelle or PayPal under <b>How members pay</b>.</p>
+          <ul class="checkout-list" id="fee-list"></ul>
+          <div class="empty" id="fees-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-card"/></svg></span>
+            <strong>Nothing here</strong>
+            <span id="fees-empty-text">No invoices yet.</span>
           </div>
         </section>
       </section>
@@ -433,6 +479,68 @@
         <button class="button ghost" type="button" id="checkout-resend" hidden><svg class="icon"><use href="#i-chat"/></svg>Resend DM</button>
         <button class="button ghost" type="button" data-close-modal>Cancel</button>
         <button class="button primary" type="submit" id="checkout-submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- An invoice: its checkouts, and marking it paid -->
+  <dialog class="modal wide" id="invoice-modal" aria-labelledby="invoice-title">
+    <form method="dialog" id="invoice-form">
+      <div>
+        <p class="eyebrow" id="invoice-eyebrow">Invoice</p>
+        <h2 id="invoice-title">Invoice</h2>
+      </div>
+      <p class="field-hint" id="invoice-sub"></p>
+      <ul class="checkout-list invoice-lines" id="invoice-lines"></ul>
+      <p class="invoice-total"><span>Total</span><strong id="invoice-total">$0.00</strong></p>
+      <p class="field-error" id="invoice-error" hidden></p>
+      <div class="modal-actions">
+        <button class="button ghost danger-text" type="button" id="invoice-void"><svg class="icon"><use href="#i-trash"/></svg>Void</button>
+        <button class="button ghost" type="button" id="invoice-resend"><svg class="icon"><use href="#i-chat"/></svg>Resend DM</button>
+        <button class="button ghost" type="button" data-close-modal autofocus>Close</button>
+        <button class="button primary" type="button" id="invoice-toggle">Mark paid</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- How members pay: the handles every invoice lists -->
+  <dialog class="modal" id="pay-modal" aria-labelledby="pay-title">
+    <form id="pay-form">
+      <div>
+        <p class="eyebrow">Shown on every invoice</p>
+        <h2 id="pay-title">How members pay</h2>
+      </div>
+      <label>
+        <span>Cash App <small>optional</small></span>
+        <input name="cashapp" maxlength="60" autocomplete="off" placeholder="$buffsquad">
+      </label>
+      <label>
+        <span>Zelle <small>optional</small></span>
+        <input name="zelle" maxlength="60" autocomplete="off" placeholder="Phone number or email">
+      </label>
+      <label>
+        <span>PayPal <small>optional</small></span>
+        <input name="paypal" maxlength="60" autocomplete="off" placeholder="@buffsquad or email">
+      </label>
+      <label>
+        <span>Note <small>optional</small></span>
+        <input name="note" maxlength="200" autocomplete="off" placeholder="Send as Friends &amp; Family">
+      </label>
+      <label>
+        Remind members who haven't paid
+        <select name="remindDays">
+          <option value="0">Never</option>
+          <option value="1">After 1 day, then daily</option>
+          <option value="2">After 2 days, then every 2 days</option>
+          <option value="3">After 3 days, then every 3 days</option>
+          <option value="7">After a week, then weekly</option>
+        </select>
+      </label>
+      <p class="field-hint">Members see these on their invoice DM and their dashboard's Billing page, with the invoice number to put in the payment note.</p>
+      <p class="field-error" id="pay-error" hidden></p>
+      <div class="modal-actions">
+        <button class="button ghost" type="button" data-close-modal>Cancel</button>
+        <button class="button primary" type="submit">Save</button>
       </div>
     </form>
   </dialog>

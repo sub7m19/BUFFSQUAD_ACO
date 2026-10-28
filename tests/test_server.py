@@ -241,6 +241,68 @@ class ServerTest(ServerCase):
             self.assertIsNone(owner(db.record_checkout(conn, {"status": "success", "profile": "Shared4-%77"}, message_key="jig2:0")))
             conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'jig%'")
 
+    def test_fee_invoices(self):
+        ivy = self.client().login("ivy")
+        ivy.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "id": "i1", "label": "Invoice1"}]})
+        with db.transaction() as conn:
+            ivy_id = conn.execute("SELECT id FROM users WHERE username = 'ivy'").fetchone()["id"]
+            ids = [db.record_checkout(conn, {"status": "success", "product": f"Fee item {n}", "retailer": "Target", "price": 50, "fee": 10},
+                                      user_id=ivy_id, message_key=f"inv{n}:0", notify=False) for n in range(3)]
+        admin = self.client().login("boss", admin=True)
+        self.assertEqual(ivy.request("GET", "/api/admin/fees")[0], 403)
+
+        _, fees, _ = admin.request("GET", "/api/admin/fees")
+        mine = next(u for u in fees["unbilled"] if u["userId"] == ivy_id)
+        self.assertEqual((mine["checkouts"], mine["amount"]), (3, 30))
+
+        status, sent, _ = admin.request("POST", "/api/admin/invoices", {"userId": ivy_id})
+        self.assertEqual((status, sent["count"], sent["total"]), (200, 1, 30))
+        self.assertEqual(admin.request("POST", "/api/admin/invoices", {"userId": ivy_id})[0], 400)  # nothing left to bill
+        _, fees, _ = admin.request("GET", "/api/admin/fees")
+        inv = next(i for i in fees["invoices"] if i["userId"] == ivy_id)
+        self.assertEqual((inv["status"], inv["amount"], inv["dmStatus"]), ("open", 30, "pending"))
+        self.assertFalse(any(u["userId"] == ivy_id for u in fees["unbilled"]))
+        self.assertGreaterEqual(admin.request("GET", "/api/admin/overview")[1]["unpaidInvoices"], 1)
+
+        # A canceled checkout comes off the invoice.
+        admin.request("PATCH", f"/api/admin/checkouts/{ids[0]}", {"stage": "canceled"})
+        _, detail, _ = admin.request("GET", f"/api/admin/invoices/{inv['id']}")
+        self.assertEqual((detail["amount"], detail["sentAmount"], len(detail["list"])), (20, 30, 2))
+
+        # Paid marks its checkouts paid, and members see it; back to unpaid undoes that.
+        _, detail, _ = admin.request("PATCH", f"/api/admin/invoices/{inv['id']}", {"status": "paid"})
+        self.assertEqual((detail["status"], detail["paidBy"]), ("paid", "Boss"))
+        _, me, _ = ivy.request("GET", "/api/me")
+        self.assertEqual([(i["number"], i["status"], i["amount"]) for i in me["invoices"]], [(detail["number"], "paid", 20)])
+        self.assertTrue(all(c["paid"] for c in me["checkouts"] if c["stage"] != "canceled"))
+        admin.request("PATCH", f"/api/admin/invoices/{inv['id']}", {"status": "open"})
+        _, me, _ = ivy.request("GET", "/api/me")
+        self.assertFalse(any(c["paid"] for c in me["checkouts"]))
+
+        # Ticking each checkout paid by hand pays the invoice too.
+        for cid in ids[1:]:
+            admin.request("PATCH", f"/api/admin/checkouts/{cid}", {"paid": True})
+        self.assertEqual(admin.request("GET", f"/api/admin/invoices/{inv['id']}")[1]["status"], "paid")
+
+        # Void puts unpaid checkouts back to be billed again.
+        admin.request("PATCH", f"/api/admin/checkouts/{ids[1]}", {"paid": False})
+        _, detail, _ = admin.request("PATCH", f"/api/admin/invoices/{inv['id']}", {"status": "void"})
+        self.assertEqual(detail["status"], "void")
+        _, fees, _ = admin.request("GET", "/api/admin/fees")
+        self.assertEqual(next(u for u in fees["unbilled"] if u["userId"] == ivy_id)["checkouts"], 1)
+
+        # How members pay: on their Billing page, without the reminder setting.
+        self.assertEqual(admin.request("PUT", "/api/admin/pay", {"cashapp": "$buffsquad", "remindDays": 2})[0], 200)
+        _, me, _ = ivy.request("GET", "/api/me")
+        self.assertEqual(me["pay"], {"cashapp": "$buffsquad"})
+        _, audit, _ = self.owner().request("GET", "/api/admin/audit?kind=changes")
+        actions = {a["action"] for a in audit["rows"]}
+        self.assertTrue({"invoice.send", "invoice.paid", "invoice.open", "invoice.void", "settings.pay"} <= actions)
+        with db.transaction() as conn:
+            conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'inv%'")
+            conn.execute("DELETE FROM invoices")
+            conn.execute("DELETE FROM kv WHERE key = 'pay'")
+
     def test_prices_across_bots(self):
         etb, ko = "Pokémon TCG: Price Test Elite Trainer Box", "Pokémon TCG: Price Test Knock Out Collection"
         with db.transaction() as conn:

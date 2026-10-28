@@ -92,6 +92,22 @@ CREATE TABLE IF NOT EXISTS audit (
   action TEXT NOT NULL,
   detail TEXT NOT NULL DEFAULT ''
 );
+-- An ACO fee invoice: a member's unpaid checkouts, billed together. The checkouts
+-- point at it (checkouts.invoice_id); its amount is their fees, so a canceled or
+-- deleted checkout comes off it.
+CREATE TABLE IF NOT EXISTS invoices (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'open',       -- open | paid | void
+  sent_amount REAL NOT NULL DEFAULT 0,       -- the total the member was sent
+  created_at INTEGER NOT NULL,
+  created_by INTEGER,
+  dm_status TEXT NOT NULL DEFAULT 'pending', -- pending | sent | failed
+  dm_error TEXT NOT NULL DEFAULT '',
+  reminded_at INTEGER,
+  paid_at INTEGER,
+  paid_by INTEGER
+);
 """
 
 STAGES = ("confirmed", "shipped", "delivered", "canceled")
@@ -123,11 +139,13 @@ def init() -> None:
         # Columns added after the first release; CREATE TABLE IF NOT EXISTS skips old tables.
         have = {r["name"] for r in conn.execute("PRAGMA table_info(checkouts)")}
         for column, decl in (("sku", "TEXT NOT NULL DEFAULT ''"), ("fee_source", "TEXT NOT NULL DEFAULT ''"),
-                             ("feed_status", "TEXT NOT NULL DEFAULT 'none'")):
+                             ("feed_status", "TEXT NOT NULL DEFAULT 'none'"),
+                             ("invoice_id", "INTEGER REFERENCES invoices(id) ON DELETE SET NULL")):
             if column not in have:
                 conn.execute(f"ALTER TABLE checkouts ADD COLUMN {column} {decl}")
         # After the columns above, so an old database has feed_status before it's indexed.
         conn.execute("CREATE INDEX IF NOT EXISTS checkouts_feed ON checkouts(feed_status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS checkouts_invoice ON checkouts(invoice_id)")
         # Checkouts saved before the parser decoded HTML codes and list bullets ("- 2x Pok&#233;mon").
         for row in conn.execute("SELECT id, product FROM checkouts WHERE product LIKE '%&%;%' OR product LIKE '- %'").fetchall():
             fixed = re.sub(r"^\s*[-•]\s+", "", html.unescape(row["product"]))
@@ -572,13 +590,99 @@ def drop_recap(conn, start: int, end: int, top: int = 10) -> dict:
             "items": sum(r["items"] for r in rows), "members": len(members), "top": members[:top], "unmatched": unmatched}
 
 
+# Invoices
+
+# Checkouts a member owes a fee on that aren't on an invoice yet.
+UNBILLED = """checkouts.result = 'hit' AND checkouts.paid = 0 AND checkouts.stage != 'canceled' AND checkouts.fee > 0
+              AND checkouts.invoice_id IS NULL AND checkouts.user_id IS NOT NULL"""
+PAY_METHODS = {"cashapp": "Cash App", "zelle": "Zelle", "paypal": "PayPal"}
+
+
+def pay_settings(conn) -> dict:
+    """How members pay invoices (handles shown on each invoice), and how many days
+    after an invoice the bot DMs a reminder (0 for never)."""
+    return {"cashapp": "", "zelle": "", "paypal": "", "note": "", "remindDays": 3, **kv_get(conn, "pay", {})}
+
+
+def invoice_number(invoice_id: int) -> str:
+    return f"#{invoice_id:04d}"
+
+
+def create_invoice(conn, user_id: int, admin_id, start: int = 0, end: int | None = None):
+    """Bills a member's unbilled checkouts from between two times (seconds; none for all)
+    and queues the bot's DM. Returns the invoice id, or None if they owe nothing."""
+    end = end or now() + 1
+    ids = [r["id"] for r in conn.execute(
+        f"SELECT id FROM checkouts WHERE {UNBILLED} AND user_id = ? AND created_at >= ? AND created_at < ?", (user_id, start, end))]
+    if not ids:
+        return None
+    amount = conn.execute(f"SELECT SUM(fee) AS s FROM checkouts WHERE id IN ({','.join('?' * len(ids))})", ids).fetchone()["s"]
+    cur = conn.execute("INSERT INTO invoices (user_id, sent_amount, created_at, created_by) VALUES (?, ?, ?, ?)",
+                       (user_id, round(amount, 2), now(), admin_id))
+    conn.execute(f"UPDATE checkouts SET invoice_id = ? WHERE id IN ({','.join('?' * len(ids))})", [cur.lastrowid, *ids])
+    return cur.lastrowid
+
+
+def invoice_checkouts(conn, invoice_id: int):
+    return conn.execute("SELECT * FROM checkouts WHERE invoice_id = ? AND stage != 'canceled' ORDER BY created_at",
+                        (invoice_id,)).fetchall()
+
+
+def set_invoice_status(conn, invoice_id: int, status: str, admin_id) -> None:
+    """Paid marks its checkouts paid; back to open unmarks them; void takes them off
+    the invoice so they can be billed again."""
+    if status == "paid":
+        conn.execute("UPDATE invoices SET status = 'paid', paid_at = ?, paid_by = ? WHERE id = ?", (now(), admin_id, invoice_id))
+        conn.execute("UPDATE checkouts SET paid = 1 WHERE invoice_id = ? AND stage != 'canceled'", (invoice_id,))
+    elif status == "open":
+        conn.execute("UPDATE invoices SET status = 'open', paid_at = NULL, paid_by = NULL WHERE id = ?", (invoice_id,))
+        conn.execute("UPDATE checkouts SET paid = 0 WHERE invoice_id = ? AND stage != 'canceled'", (invoice_id,))
+    elif status == "void":
+        conn.execute("UPDATE invoices SET status = 'void' WHERE id = ?", (invoice_id,))
+        conn.execute("UPDATE checkouts SET invoice_id = NULL WHERE invoice_id = ? AND paid = 0", (invoice_id,))
+
+
+def sync_invoice(conn, invoice_id, admin_id) -> None:
+    """Keeps an invoice in step after its checkouts change by hand: paid once all of
+    them are, open again if one is unmarked, void if none are left."""
+    inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone() if invoice_id else None
+    if not inv or inv["status"] == "void":
+        return
+    rows = invoice_checkouts(conn, invoice_id)
+    if not rows:
+        set_invoice_status(conn, invoice_id, "void", admin_id)
+    elif inv["status"] == "open" and all(r["paid"] for r in rows):
+        conn.execute("UPDATE invoices SET status = 'paid', paid_at = ?, paid_by = ? WHERE id = ?", (now(), admin_id, invoice_id))
+    elif inv["status"] == "paid" and not all(r["paid"] for r in rows):
+        conn.execute("UPDATE invoices SET status = 'open', paid_at = NULL, paid_by = NULL WHERE id = ?", (invoice_id,))
+
+
+def invoice_json(conn, inv, with_checkouts: bool = False) -> dict:
+    rows = invoice_checkouts(conn, inv["id"])
+    names = {r["id"]: r["name"] for r in conn.execute(
+        "SELECT id, COALESCE(NULLIF(display_name, ''), username) AS name FROM users WHERE id IN (?, ?)", (inv["user_id"], inv["paid_by"] or 0))}
+    days = pay_settings(conn)["remindDays"] or 3
+    data = {
+        "id": inv["id"], "number": invoice_number(inv["id"]), "userId": inv["user_id"], "member": names.get(inv["user_id"], ""),
+        "status": inv["status"], "amount": round(sum(r["fee"] for r in rows), 2), "sentAmount": inv["sent_amount"],
+        "checkouts": len(rows), "items": sum(r["qty"] for r in rows), "at": inv["created_at"] * 1000,
+        "dmStatus": inv["dm_status"], "dmError": inv["dm_error"],
+        "remindedAt": inv["reminded_at"] * 1000 if inv["reminded_at"] else None,
+        "paidAt": inv["paid_at"] * 1000 if inv["paid_at"] else None, "paidBy": names.get(inv["paid_by"], ""),
+        "overdue": inv["status"] == "open" and now() - inv["created_at"] > days * 86400,
+    }
+    if with_checkouts:
+        data["list"] = [checkout_json(r) for r in rows]
+    return data
+
+
 def checkout_json(row, member_view: bool = False) -> dict:
     """A checkout as the dashboards use it."""
     data = {
         "id": row["id"], "product": row["product"] or "Unknown item", "retailer": row["retailer"] or "Unknown",
         "order": row["order_no"], "date": time.strftime("%b %d", time.localtime(row["created_at"])).replace(" 0", " "),
         "qty": row["qty"], "price": row["price"], "fee": row["fee"], "paid": bool(row["paid"]), "stage": row["stage"],
-        "at": row["created_at"] * 1000,
+        "at": row["created_at"] * 1000, "invoice": invoice_number(row["invoice_id"]) if row["invoice_id"] else "",
     }
     if not member_view:
         keys = row.keys()

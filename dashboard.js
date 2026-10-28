@@ -19,6 +19,10 @@ const checkouts = [
 
 // Attempts that didn't go through, for the hit rate.
 let declined = 2;
+// From the server: the member's fee invoices, and the handles they pay to.
+let invoices = [];
+let payTo = {};
+const PAY_NAMES = { cashapp: "Cash App", zelle: "Zelle", paypal: "PayPal" };
 
 const feed = [
   { kind: "hit", text: "Checked out Prismatic Evolutions ETB", meta: "Target · Qty 2", at: now - 6 * minute },
@@ -326,6 +330,15 @@ function renderBilling() {
   byId("billing-paid").textContent = money(t.paid);
   byId("billing-due-small").textContent = money(t.due);
 
+  const handles = Object.keys(PAY_NAMES).filter((k) => payTo[k]);
+  const open = invoices.filter((i) => i.status === "open");
+  byId("pay-how").hidden = !handles.length;
+  byId("pay-how-list").innerHTML = handles.map((k) => `<li><span>${PAY_NAMES[k]}</span><b>${escape(payTo[k])}</b></li>`).join("");
+  byId("pay-how-note").textContent = [
+    open.length ? `Put ${open.map((i) => i.number).join(", ")} in the payment note.` : "",
+    payTo.note || "",
+  ].filter(Boolean).join(" ");
+
   const billable = checkouts.filter(charged).sort((a, b) => a.paid - b.paid);
   byId("invoice-count").textContent = t.dueCount ? `${t.dueCount} unpaid` : "All settled";
   byId("invoice-list").innerHTML = billable.map((c) => `
@@ -333,7 +346,7 @@ function renderBilling() {
       <span class="avatar">${escape(initials(c.retailer))}</span>
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
-        <span>${c.order ? `#${escape(c.order)} · ` : ""}${escape(c.date)} · ${money(c.price)} retail</span>
+        <span>${c.invoice ? `Invoice ${escape(c.invoice)} · ` : ""}${c.order ? `#${escape(c.order)} · ` : ""}${escape(c.date)} · ${money(c.price)} retail</span>
       </div>
       <div class="checkout-fee">
         <strong>${money(c.fee)}</strong>
@@ -1405,6 +1418,8 @@ function applyRemote(data) {
   user.name = data.user.name;
   checkouts.splice(0, checkouts.length, ...data.checkouts);
   declined = data.declined;
+  invoices = data.invoices || [];
+  payTo = data.pay || {};
   feed.splice(0, feed.length, ...data.feed);
   const fresh = normalize(data.settings, blank);
   Object.keys(state).forEach((k) => delete state[k]);

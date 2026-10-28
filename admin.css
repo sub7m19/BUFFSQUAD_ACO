@@ -922,6 +922,7 @@ code.revealed {
 @media (min-width: 1024px) and (min-height: 640px) {
   [data-view="overview"] > .panel:last-child,
   [data-view="members"] > .panel,
+  [data-view="fees"] > .panel:last-child,
   [data-view="activity"] > .panel {
     display: flex;
     flex: 1 1 0;
@@ -1043,4 +1044,69 @@ code.revealed {
 
 .recap-from[hidden] {
   display: none;
+}
+
+/* Fees */
+.fee-range select {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--white);
+}
+
+.fee-range select option {
+  background: var(--ink);
+}
+
+.fee-toolbar .segment {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.pay-missing {
+  margin: 0 0 8px;
+  color: var(--peach);
+}
+
+#fee-list .button.small {
+  flex: 0 0 auto;
+}
+
+#fee-list .overdue .checkout-fee .status {
+  background: rgba(255, 133, 133, 0.14);
+  color: var(--red);
+}
+
+.invoice-lines {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.invoice-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--soft);
+  font-weight: 700;
+}
+
+.invoice-total strong {
+  color: var(--white);
+  font-size: 1.3rem;
+}
+
+#invoice-void[hidden],
+#invoice-resend[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  #fee-list .button.small span {
+    display: none;
+  }
 }

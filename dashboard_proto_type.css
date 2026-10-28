@@ -4366,3 +4366,46 @@ a.tile:hover {
     overflow-y: auto;
   }
 }
+
+/* Billing: the handles members pay their invoices to */
+.pay-how {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.pay-how[hidden] {
+  display: none;
+}
+
+.pay-how ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pay-how li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--soft);
+  font-size: 0.86rem;
+}
+
+.pay-how b {
+  color: var(--white);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.pay-how p:last-child {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.pay-how p:last-child:empty {
+  display: none;
+}

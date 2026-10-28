@@ -16,7 +16,7 @@ const DM = {
   off: ["DMs off", "paused"],
 };
 
-const ROUTES = ["overview", "checkouts", "channels", "members", "export", "settings", "activity"];
+const ROUTES = ["overview", "checkouts", "fees", "channels", "members", "export", "settings", "activity"];
 
 const data = { members: [], checkouts: [], settings: null };
 const filters = { view: "", search: "", memberSearch: "", auditKind: "admin", auditWho: "" };
@@ -127,6 +127,12 @@ async function loadOverview() {
   byId("recent-list").innerHTML = o.recent.map((c) => checkoutRow(c)).join("");
   byId("recent-empty").hidden = o.recent.length > 0;
   setUnmatched(o.unmatched);
+  setUnpaid(o.unpaidInvoices);
+}
+
+function setUnpaid(n) {
+  byId("nav-fees").textContent = n || "";
+  byId("nav-fees").hidden = !n;
 }
 
 function setUnmatched(n) {
@@ -258,6 +264,277 @@ document.querySelector('[data-filter="view"]').addEventListener("click", (e) => 
   filters.view = btn.dataset.value;
   btn.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === btn));
   loadCheckouts();
+});
+
+// Fees: who owes, who has paid, and the invoices the bot DMs.
+
+const feeFilters = { view: "unpaid", range: "" };
+let feeData = null;
+const invoiceModal = byId("invoice-modal");
+const payModal = byId("pay-modal");
+let openInvoice = null;
+
+function feeFrom() {
+  if (feeFilters.range === "today") return new Date().setHours(0, 0, 0, 0);
+  return feeFilters.range ? Date.now() - Number(feeFilters.range) * 86400000 : 0;
+}
+
+const daysAgo = (ms) => Math.floor((Date.now() - ms) / 86400000);
+
+function invoiceRow(i) {
+  const dm = DM[i.dmStatus];
+  const state = i.status === "paid"
+    ? `<span class="status paid">Paid</span>`
+    : `<span class="status due">${i.overdue ? `Overdue · ${daysAgo(i.at)}d` : "Unpaid"}</span>`;
+  const detail = i.status === "paid"
+    ? `Paid ${when(i.paidAt)}${i.paidBy ? ` · marked by ${escape(i.paidBy)}` : ""}`
+    : `Sent ${when(i.at)}${dm ? ` · <i class="dm ${dm[1]}" title="${escape(i.dmError)}">${dm[0]}</i>` : ""}${i.remindedAt ? ` · reminded ${ago(i.remindedAt)}` : ""}`;
+  return `
+    <li class="admin-row ${i.overdue ? "overdue" : ""}" data-invoice="${i.id}" tabindex="0" role="button" aria-label="Open invoice ${i.number}">
+      <span class="avatar round">${escape(initials(i.member))}</span>
+      <div class="checkout-info">
+        <strong>${escape(i.member)} · ${i.number}</strong>
+        <span>${plural(i.checkouts, "checkout")} · ${plural(i.items, "item")}</span>
+        <span>${detail}</span>
+      </div>
+      ${i.status === "open" ? `<button class="button ghost small" type="button" data-pay="${i.id}" title="Mark paid">${icon("check")}<span>Mark paid</span></button>` : ""}
+      <div class="checkout-fee"><strong>${money(i.amount)}</strong>${state}</div>
+    </li>`;
+}
+
+function unbilledRow(u) {
+  return `
+    <li class="admin-row" data-member="${u.userId}" tabindex="0" role="button" aria-label="Open ${escape(u.member)}">
+      <span class="avatar round">${escape(initials(u.member))}</span>
+      <div class="checkout-info">
+        <strong>${escape(u.member)}</strong>
+        <span>${plural(u.checkouts, "checkout")} · ${plural(u.items, "item")}</span>
+        <span>Oldest ${when(u.since)}</span>
+      </div>
+      <button class="button ghost small" type="button" data-send="${u.userId}" title="Send invoice">${icon("chat")}<span>Send invoice</span></button>
+      <div class="checkout-fee"><strong>${money(u.amount)}</strong><span class="status paused">Not invoiced</span></div>
+    </li>`;
+}
+
+function renderFees() {
+  const { totals, invoices, unbilled, pay } = feeData;
+  const open = invoices.filter((i) => i.status === "open");
+  const paid = invoices.filter((i) => i.status === "paid");
+  const tiles = [
+    ["card", "peach", "Owed", money(totals.owed), open.length ? `${plural(open.length, "unpaid invoice")}` : "Nothing outstanding"],
+    ["check", "green", "Paid", money(totals.paid), `${plural(paid.length, "invoice")} paid`],
+    ["clock", "violet", "Not invoiced yet", money(totals.unbilled), unbilled.length ? `${plural(unbilled.length, "member")} to invoice` : "Everyone's invoiced"],
+  ];
+  byId("fee-tiles").innerHTML = tiles.map(([ic, tone, label, value, note]) => `
+    <div class="tile">
+      <span class="tile-icon ${tone}">${icon(ic)}</span>
+      <div><small>${label}</small><strong>${escape(value)}</strong><span class="tile-note">${escape(note)}</span></div>
+    </div>`).join("");
+  byId("count-fee-unpaid").textContent = open.length || "";
+  byId("count-fee-unbilled").textContent = unbilled.length || "";
+  byId("pay-missing").hidden = Boolean(pay.cashapp || pay.zelle || pay.paypal);
+  byId("invoice-all").disabled = !unbilled.length;
+
+  const rows = {
+    unpaid: open.map(invoiceRow),
+    paid: paid.map(invoiceRow),
+    unbilled: unbilled.map(unbilledRow),
+    all: [...unbilled.map(unbilledRow), ...invoices.map(invoiceRow)],
+  }[feeFilters.view];
+  byId("fee-list").innerHTML = rows.join("");
+  byId("fees-empty").hidden = rows.length > 0;
+  byId("fees-empty-text").textContent = {
+    unpaid: "Nobody owes on an invoice. Send invoices from Not invoiced.",
+    paid: "No paid invoices yet.",
+    unbilled: "Every unpaid fee is on an invoice.",
+    all: "No fees yet.",
+  }[feeFilters.view];
+}
+
+async function loadFees() {
+  const from = feeFrom();
+  feeData = await api("GET", `/api/admin/fees${from ? `?from=${from}` : ""}`);
+  renderFees();
+}
+
+document.querySelector('[data-filter="fee-view"]').addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  feeFilters.view = btn.dataset.value;
+  btn.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === btn));
+  if (feeData) renderFees();
+});
+
+byId("fee-range").addEventListener("change", (e) => {
+  feeFilters.range = e.target.value;
+  loadFees().catch((err) => notify(err.message));
+});
+
+async function setInvoice(id, change) {
+  const inv = await api("PATCH", `/api/admin/invoices/${id}`, change);
+  loadFees().catch(() => {});
+  refresh();
+  return inv;
+}
+
+byId("fee-list").addEventListener("click", async (e) => {
+  const pay = e.target.closest("[data-pay]");
+  const send = e.target.closest("[data-send]");
+  try {
+    if (pay) {
+      pay.disabled = true;
+      const inv = await setInvoice(Number(pay.dataset.pay), { status: "paid" });
+      notify(`${inv.number} marked paid`);
+    } else if (send) {
+      send.disabled = true;
+      const from = feeFrom();
+      await api("POST", "/api/admin/invoices", { userId: Number(send.dataset.send), from: from || undefined });
+      notify("Invoice sent. The bot DMs it within a few seconds.");
+      loadFees().catch(() => {});
+      refresh();
+    } else {
+      const row = e.target.closest("[data-invoice]");
+      if (row) await openInvoiceModal(Number(row.dataset.invoice));
+    }
+  } catch (err) {
+    notify(err.message);
+    if (pay) pay.disabled = false;
+    if (send) send.disabled = false;
+  }
+});
+
+byId("fee-list").addEventListener("keydown", (e) => {
+  const row = e.target.closest("[data-invoice]");
+  if (row && (e.key === "Enter" || e.key === " ") && e.target === row) {
+    e.preventDefault();
+    openInvoiceModal(Number(row.dataset.invoice)).catch((err) => notify(err.message));
+  }
+});
+
+let inviteArmed = false;
+byId("invoice-all").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const label = `${icon("chat")}Invoice everyone who owes`;
+  try {
+    if (!inviteArmed) {
+      const people = feeData.unbilled;
+      inviteArmed = true;
+      btn.classList.add("confirm");
+      btn.innerHTML = `Send ${plural(people.length, "invoice")} (${money(feeData.totals.unbilled)})?`;
+      setTimeout(() => {
+        inviteArmed = false;
+        btn.classList.remove("confirm");
+        btn.innerHTML = label;
+      }, 6000);
+      return;
+    }
+    inviteArmed = false;
+    btn.classList.remove("confirm");
+    btn.innerHTML = label;
+    const from = feeFrom();
+    const { count, total } = await api("POST", "/api/admin/invoices", { all: true, from: from || undefined });
+    notify(`Sent ${plural(count, "invoice")} for ${money(total)}`);
+    loadFees().catch(() => {});
+    refresh();
+  } catch (err) {
+    notify(err.message);
+  }
+});
+
+function renderInvoice(inv) {
+  openInvoice = inv;
+  const dm = DM[inv.dmStatus];
+  byId("invoice-eyebrow").textContent = inv.status === "paid" ? "Paid invoice" : inv.overdue ? "Overdue invoice" : "Unpaid invoice";
+  byId("invoice-title").textContent = `${inv.number} · ${inv.member}`;
+  byId("invoice-sub").innerHTML = [
+    `Sent ${escape(when(inv.at))}`,
+    dm ? `${dm[0]}${inv.dmError ? `: ${escape(inv.dmError)}` : ""}` : "",
+    inv.remindedAt ? `reminded ${ago(inv.remindedAt)}` : "",
+    inv.status === "paid" ? `paid ${escape(when(inv.paidAt))}${inv.paidBy ? ` (marked by ${escape(inv.paidBy)})` : ""}` : "",
+    Math.abs(inv.sentAmount - inv.amount) >= 0.01 ? `the DM said ${money(inv.sentAmount)}; checkouts changed since` : "",
+  ].filter(Boolean).join(" · ");
+  byId("invoice-lines").innerHTML = inv.list.map((c) => `
+    <li>
+      <span class="avatar">${escape(initials(c.retailer))}</span>
+      <div class="checkout-info">
+        <strong>${escape(c.product)}</strong>
+        <span>${escape(c.retailer)}${c.qty > 1 ? ` · Qty ${c.qty}` : ""}${c.order ? ` · #${escape(c.order)}` : ""} · ${escape(c.date)} · ${money(c.price)}</span>
+      </div>
+      <div class="checkout-fee"><strong>${money(c.fee)}</strong></div>
+    </li>`).join("") || `<li class="mini-empty">No checkouts left on this invoice.</li>`;
+  byId("invoice-total").textContent = money(inv.amount);
+  byId("invoice-toggle").textContent = inv.status === "paid" ? "Mark unpaid" : "Mark paid";
+  byId("invoice-toggle").classList.toggle("ghost", inv.status === "paid");
+  byId("invoice-toggle").classList.toggle("primary", inv.status !== "paid");
+  byId("invoice-void").hidden = byId("invoice-resend").hidden = inv.status !== "open";
+  byId("invoice-error").hidden = true;
+}
+
+async function openInvoiceModal(id) {
+  renderInvoice(await api("GET", `/api/admin/invoices/${id}`));
+  if (!invoiceModal.open) invoiceModal.showModal();
+}
+
+async function invoiceAction(change, done) {
+  try {
+    renderInvoice(await setInvoice(openInvoice.id, change));
+    notify(done);
+  } catch (err) {
+    byId("invoice-error").textContent = err.message;
+    byId("invoice-error").hidden = false;
+  }
+}
+
+byId("invoice-toggle").addEventListener("click", () => {
+  const paid = openInvoice.status === "paid";
+  invoiceAction({ status: paid ? "open" : "paid" }, `${openInvoice.number} marked ${paid ? "unpaid" : "paid"}`);
+});
+byId("invoice-resend").addEventListener("click", () => invoiceAction({ resend: true }, "The bot will DM it again in a few seconds."));
+
+let voidArmed = false;
+byId("invoice-void").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (!voidArmed) {
+    voidArmed = true;
+    btn.innerHTML = `${icon("trash")}Void it? Its checkouts go back to Not invoiced`;
+    setTimeout(() => {
+      voidArmed = false;
+      btn.innerHTML = `${icon("trash")}Void`;
+    }, 6000);
+    return;
+  }
+  voidArmed = false;
+  btn.innerHTML = `${icon("trash")}Void`;
+  await invoiceAction({ status: "void" }, `${openInvoice.number} voided`);
+  invoiceModal.close();
+});
+
+invoiceModal.addEventListener("close", () => (openInvoice = null));
+
+byId("open-pay-settings").addEventListener("click", () => {
+  const form = byId("pay-form");
+  const pay = feeData ? feeData.pay : {};
+  for (const name of ["cashapp", "zelle", "paypal", "note"]) form.elements[name].value = pay[name] || "";
+  form.elements.remindDays.value = String(pay.remindDays ?? 3);
+  if (![...form.elements.remindDays.options].some((o) => o.selected)) form.elements.remindDays.value = "3";
+  byId("pay-error").hidden = true;
+  payModal.showModal();
+});
+
+byId("pay-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  try {
+    await api("PUT", "/api/admin/pay", {
+      cashapp: f.cashapp.value, zelle: f.zelle.value, paypal: f.paypal.value, note: f.note.value, remindDays: Number(f.remindDays.value),
+    });
+    payModal.close();
+    notify("Saved. New invoices and reminders use these.");
+    loadFees().catch(() => {});
+  } catch (err) {
+    byId("pay-error").textContent = err.message;
+    byId("pay-error").hidden = false;
+  }
 });
 
 // Channels
@@ -1085,6 +1362,8 @@ const ACTIONS = {
   "channel.add": "Added a checkout channel", "channel.remove": "Removed a checkout channel",
   "feed.set": "Set the success feed channel", "feed.clear": "Turned off the success feed",
   "checkout.bulk_delete": "Deleted checkouts", "recap.post": "Posted a drop recap",
+  "invoice.send": "Sent an invoice", "invoice.paid": "Marked an invoice paid", "invoice.open": "Marked an invoice unpaid",
+  "invoice.void": "Voided an invoice", "invoice.resend": "Resent an invoice", "settings.pay": "Changed how members pay",
   "blocked.export": "Blocked: downloading an admin's profiles", "blocked.reveal": "Blocked: revealing an admin's details",
   "blocked.disable": "Blocked: turning an admin on or off",
 };
@@ -1146,6 +1425,7 @@ byId("app-version").addEventListener("click", (e) => {
 const loaders = {
   overview: loadOverview,
   checkouts: loadCheckouts,
+  fees: loadFees,
   channels: loadChannels,
   members: loadMembers,
   export: loadSettings,
@@ -1182,7 +1462,10 @@ function route() {
 function refresh() {
   loaders[current()]().catch((err) => notify(err.message));
   // Keep the Unmatched badge current on every page.
-  if (current() !== "overview") api("GET", "/api/admin/overview").then((o) => setUnmatched(o.unmatched)).catch(() => {});
+  if (current() !== "overview") api("GET", "/api/admin/overview").then((o) => {
+    setUnmatched(o.unmatched);
+    setUnpaid(o.unpaidInvoices);
+  }).catch(() => {});
   if (openMember && memberModal.open) openMemberModal(openMember.id).catch(() => {});
 }
 
@@ -1213,7 +1496,8 @@ memberModal.addEventListener("close", () => (openMember = null));
 
 // New checkouts appear without a reload.
 setInterval(() => {
-  if (!document.hidden && !checkoutModal.open && !confirmModal.open && !recapModal.open &&["overview", "checkouts", "channels"].includes(current())) refresh();
+  if (!document.hidden && !checkoutModal.open && !confirmModal.open && !recapModal.open && !invoiceModal.open && !payModal.open
+      && ["overview", "checkouts", "fees", "channels"].includes(current())) refresh();
 }, 15000);
 
 (async function boot() {
