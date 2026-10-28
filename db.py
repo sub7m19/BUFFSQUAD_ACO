@@ -485,6 +485,22 @@ def record_checkout(conn, parsed: dict, message_key: str | None = None, channel_
     return cur.lastrowid
 
 
+def drop_recap(conn, start: int, end: int, top: int = 10) -> dict:
+    """A drop's stats between two times (seconds): successful checkouts, items, and
+    the members who checked out the most items. Canceled orders don't count."""
+    rows = conn.execute(
+        """SELECT checkouts.user_id, users.discord_id, COALESCE(NULLIF(users.display_name, ''), users.username) AS name,
+                  COUNT(*) AS checkouts, SUM(checkouts.qty) AS items
+           FROM checkouts LEFT JOIN users ON users.id = checkouts.user_id
+           WHERE checkouts.result = 'hit' AND checkouts.stage != 'canceled' AND checkouts.created_at >= ? AND checkouts.created_at < ?
+           GROUP BY checkouts.user_id ORDER BY items DESC, checkouts DESC""", (start, end)).fetchall()
+    members = [{"name": r["name"], "discordId": r["discord_id"] if (r["discord_id"] or "").isdigit() else "",
+                "checkouts": r["checkouts"], "items": r["items"]} for r in rows if r["user_id"]]
+    unmatched = next(({"checkouts": r["checkouts"], "items": r["items"]} for r in rows if not r["user_id"]), None)
+    return {"from": start * 1000, "to": end * 1000, "checkouts": sum(r["checkouts"] for r in rows),
+            "items": sum(r["items"] for r in rows), "members": len(members), "top": members[:top], "unmatched": unmatched}
+
+
 def checkout_json(row, member_view: bool = False) -> dict:
     """A checkout as the dashboards use it."""
     data = {

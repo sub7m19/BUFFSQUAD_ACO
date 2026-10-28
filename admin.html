@@ -41,6 +41,7 @@
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4l2-2z"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v6a4 4 0 0 1-8 0V4z"/><path d="M8 6H4v1a4 4 0 0 0 4 4M16 6h4v1a4 4 0 0 1-4 4M12 14v4M8 21h8M9 18h6"/></symbol>
     <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
   </svg>
 
@@ -85,6 +86,9 @@
             <h1 id="overview-title">Overview</h1>
             <p class="page-sub" id="bot-line">Checking the bot…</p>
           </div>
+          <div class="head-actions">
+            <button class="button ghost" type="button" data-open-recap><svg class="icon"><use href="#i-trophy"/></svg>Drop recap</button>
+          </div>
         </header>
 
         <section class="panel" aria-label="Totals">
@@ -113,6 +117,7 @@
             <p class="page-sub">Everything the bot logged, plus any you add by hand. Unmatched ones need a member.</p>
           </div>
           <div class="head-actions">
+            <button class="button ghost" type="button" data-open-recap><svg class="icon"><use href="#i-trophy"/></svg>Drop recap</button>
             <button class="button primary" type="button" id="add-checkout"><svg class="icon"><use href="#i-plus"/></svg>Add checkout</button>
           </div>
         </header>
@@ -428,6 +433,45 @@
         <button class="button ghost" type="button" id="checkout-resend" hidden><svg class="icon"><use href="#i-chat"/></svg>Resend DM</button>
         <button class="button ghost" type="button" data-close-modal>Cancel</button>
         <button class="button primary" type="submit" id="checkout-submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Drop recap: a drop's stats, posted to Discord by the bot -->
+  <dialog class="modal wide" id="recap-modal" aria-labelledby="recap-title">
+    <form id="recap-form" method="dialog">
+      <div>
+        <p class="eyebrow">Share with the server</p>
+        <h2 id="recap-title">Drop recap</h2>
+      </div>
+      <label>
+        <span>Drop name <small>optional</small></span>
+        <input name="title" maxlength="80" autocomplete="off" placeholder="Drop recap">
+      </label>
+      <div class="recap-range">
+        <span>Checkouts from</span>
+        <div class="segment" role="group" aria-label="Checkouts from" id="recap-range">
+          <button type="button" aria-pressed="true" data-value="today">Today</button>
+          <button type="button" aria-pressed="false" data-value="3">Last 3 hours</button>
+          <button type="button" aria-pressed="false" data-value="6">Last 6 hours</button>
+          <button type="button" aria-pressed="false" data-value="custom">Custom</button>
+        </div>
+        <label class="recap-from" hidden>
+          <span class="sr-only">Start time</span>
+          <input type="datetime-local" name="from">
+        </label>
+      </div>
+      <div class="recap-card" id="recap-preview" aria-live="polite"></div>
+      <label>
+        Post to channel
+        <input name="channel" inputmode="numeric" autocomplete="off" placeholder="Channel ID">
+      </label>
+      <p class="field-hint">Right-click the channel in Discord and pick <b>Copy Channel ID</b>. The bot needs View Channel, Send Messages and Embed Links there. Member tags show their names without pinging them.</p>
+      <p class="field-error" id="recap-error" hidden></p>
+      <div class="modal-actions">
+        <button class="button ghost" type="button" data-close-modal>Close</button>
+        <button class="button ghost" type="button" id="recap-copy"><svg class="icon"><use href="#i-copy"/></svg>Copy text</button>
+        <button class="button primary" type="submit" id="recap-post">Post to Discord</button>
       </div>
     </form>
   </dialog>

@@ -929,3 +929,118 @@ code.revealed {
     min-height: 220px;
   }
 }
+
+/* Drop recap: the preview looks like the embed the bot posts. */
+.recap-range {
+  display: grid;
+  gap: 8px;
+  color: var(--soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.recap-range .segment {
+  justify-self: start;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.recap-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--cyan);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.recap-card:empty {
+  display: none;
+}
+
+.recap-name {
+  font-size: 1.05rem;
+}
+
+.recap-when,
+.recap-label,
+.recap-stats span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.recap-label {
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.recap-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.recap-stats div {
+  display: grid;
+  gap: 2px;
+}
+
+.recap-stats b {
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.recap-top {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.recap-top li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 0.88rem;
+}
+
+.recap-place {
+  flex: 0 0 26px;
+  color: var(--muted);
+  font-weight: 800;
+  text-align: center;
+}
+
+.recap-who {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recap-count {
+  margin-left: auto;
+  color: var(--soft);
+  white-space: nowrap;
+}
+
+.recap-count b {
+  color: var(--cyan);
+}
+
+.recap-card .mini-empty,
+.recap-card .field-hint {
+  margin: 0;
+}
+
+.recap-from[hidden] {
+  display: none;
+}

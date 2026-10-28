@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -239,6 +240,34 @@ class ServerTest(ServerCase):
             # Two members both have a "Shared4": no guessing.
             self.assertIsNone(owner(db.record_checkout(conn, {"status": "success", "profile": "Shared4-%77"}, message_key="jig2:0")))
             conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'jig%'")
+
+    def test_drop_recap(self):
+        rio = self.client().login("rio")
+        rio.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "id": "r1", "label": "Recap1"}]})
+        # Two days back, away from the other tests' checkouts.
+        start = int(time.time()) - 2 * 86400
+        with db.transaction() as conn:
+            for i, (profile, qty, status) in enumerate([("Recap1", 2, "success"), ("Recap1", 3, "success"),
+                                                        ("nobody-x", 1, "success"), ("Recap1", 1, "decline")]):
+                db.record_checkout(conn, {"status": status, "profile": profile, "qty": qty, "retailer": "Target"}, message_key=f"recap{i}:0")
+            conn.execute("UPDATE checkouts SET created_at = ? WHERE message_key LIKE 'recap%'", (start + 60,))
+        admin = self.client().login("boss", admin=True)
+        status, s, _ = admin.request("GET", f"/api/admin/recap?from={start * 1000}&to={(start + 3600) * 1000}")
+        self.assertEqual(status, 200)
+        self.assertEqual((s["checkouts"], s["items"], s["members"], s["unmatched"]), (3, 6, 1, {"checkouts": 1, "items": 1}))
+        self.assertEqual((s["top"][0]["name"], s["top"][0]["items"], s["top"][0]["checkouts"]), ("Rio", 5, 2))
+        self.assertEqual(self.client().login("rio").request("GET", f"/api/admin/recap?from={start * 1000}")[0], 403)
+        self.assertEqual(admin.request("GET", "/api/admin/recap?from=nope")[0], 400)
+
+        status, posted, _ = admin.request("POST", "/api/admin/recap", {"from": start * 1000, "to": (start + 3600) * 1000, "title": "Friday drop", "channel": "123456789012345678"})
+        self.assertEqual(status, 200)
+        _, st, _ = admin.request("GET", f"/api/admin/recap/{posted['id']}")
+        self.assertEqual(st["status"], "pending")
+        with db.transaction() as conn:
+            post = db.kv_get(conn, "recaps")[-1]
+            self.assertEqual((post["title"], post["stats"]["items"]), ("Friday drop", 6))
+            conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'recap%'")
+            conn.execute("DELETE FROM kv WHERE key = 'recaps'")
 
     def test_admins_cant_open_other_admins(self):
         card = {"kind": "card", "ref": "p1", "value": {"number": "5555555555554444", "cvv": "321", "exp": "02/30", "name": "X"}}

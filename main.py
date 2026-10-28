@@ -602,6 +602,18 @@ def channel_id_from(body: dict) -> str:
     return channel_id
 
 
+def recap_range(start, end) -> tuple[int, int]:
+    """A drop recap's start and end (ms from the browser, so 'today' is the admin's
+    own day) as seconds. No end means now."""
+    try:
+        start_s, end_s = int(float(start)) // 1000, int(float(end or db.now() * 1000)) // 1000
+    except (TypeError, ValueError):
+        raise AppError(400, "Pick when the drop started.")
+    if start_s >= end_s or end_s - start_s > 7 * 86400:
+        raise AppError(400, "Pick a start time before the end, within the last week.")
+    return start_s, end_s
+
+
 # The owner's master log filters: which audit rows each choice shows.
 AUDIT_KINDS = {
     "admin": "audit.action != 'login'",
@@ -1006,6 +1018,36 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         conn.execute("DELETE FROM kv WHERE key IN ('feed_channel', 'bot_feed_channel')")
         db.audit(conn, admin["id"], "feed.clear", "")
         return h.send_json(200, {"ok": True})
+
+    if (method, path) == ("GET", "/api/admin/recap"):
+        start, end = recap_range(q("from"), q("to"))
+        recaps = db.kv_get(conn, "recaps", [])
+        last = recaps[-1]["channel"] if recaps else (db.feed_channel(conn) or {}).get("id", "")
+        return h.send_json(200, {**db.drop_recap(conn, start, end), "channel": last, "posts": recaps[-5:]})
+
+    if (method, path) == ("POST", "/api/admin/recap"):
+        body = h.body()
+        start, end = recap_range(body.get("from"), body.get("to"))
+        channel_id = channel_id_from({"id": body.get("channel")})
+        if any(c["id"] == channel_id for c in db.checkout_channels(conn)):
+            raise AppError(400, "The bot reads checkout webhooks from that channel. Pick a different one for the recap.")
+        stats = db.drop_recap(conn, start, end)
+        if not stats["checkouts"]:
+            raise AppError(400, "No successful checkouts in that time.")
+        title = str(body.get("title") or "").strip()[:80] or "Drop recap"
+        # The bot posts it on its next tick (bot.send_pending_recaps) and marks it sent or failed.
+        post = {"id": secrets.token_hex(4), "title": title, "channel": channel_id, "stats": stats,
+                "status": "pending", "error": "", "by": admin["username"], "at": db.now() * 1000}
+        db.kv_set(conn, "recaps", (db.kv_get(conn, "recaps", []) + [post])[-20:])
+        db.audit(conn, admin["id"], "recap.post", f"{title}: {stats['checkouts']} checkouts, {stats['items']} items, to channel {channel_id}")
+        return h.send_json(200, {"ok": True, "id": post["id"]})
+
+    m_recap = re.fullmatch(r"/api/admin/recap/([0-9a-f]{8})", path)
+    if method == "GET" and m_recap:
+        post = next((p for p in db.kv_get(conn, "recaps", []) if p["id"] == m_recap.group(1)), None)
+        if not post:
+            raise AppError(404, "That recap isn't on the list.")
+        return h.send_json(200, {"status": post["status"], "error": post["error"], "channelName": post.get("channelName", "")})
 
     if (method, path) == ("GET", "/api/admin/audit"):
         # The master log: owners only, so admins can't see what's recorded about them.

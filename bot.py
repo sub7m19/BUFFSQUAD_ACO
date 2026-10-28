@@ -9,7 +9,8 @@ item, store, profile name and a tag of the member: none of the order number,
 proxies or other details the AIO bots put in their webhooks.
 
 It also sends DMs the admin panel queues (an unmatched checkout assigned to a
-member, or "Resend DM"), and catches up on messages posted while it was offline.
+member, or "Resend DM"), posts drop recaps sent from the admin panel, and catches
+up on messages posted while it was offline.
 
 The channels to watch are set on the admin panel's Channels tab. The bot re-reads
 that list every few seconds, so adding or removing one needs no restart.
@@ -145,6 +146,57 @@ async def send_pending_feed() -> None:
             conn.execute("UPDATE checkouts SET feed_status = ? WHERE id = ?", (status, c["id"]))
 
 
+MEDALS = ["🥇", "🥈", "🥉"]
+
+
+def recap_embed(post) -> discord.Embed:
+    # Counts and members only: no products' prices, order numbers or profiles.
+    s = post["stats"]
+    start, end = s["from"] // 1000, s["to"] // 1000
+    embed = discord.Embed(title=f"🏆 {post['title']}", color=0x23CED9,
+                          description=f"<t:{start}:f> – <t:{end}:t>")
+    embed.add_field(name="Successful checkouts", value=f"**{s['checkouts']:,}**")
+    embed.add_field(name="Items", value=f"**{s['items']:,}**")
+    embed.add_field(name="Members", value=f"**{s['members']:,}**")
+    lines = []
+    for i, m in enumerate(s["top"]):
+        place = MEDALS[i] if i < len(MEDALS) else f"`{i + 1}.`"
+        who = f"<@{m['discordId']}>" if m["discordId"] else m["name"]
+        lines.append(f"{place} {who} · **{m['items']}** item{'s' if m['items'] != 1 else ''}"
+                     f" ({m['checkouts']} checkout{'s' if m['checkouts'] != 1 else ''})")
+    if lines:
+        embed.add_field(name="Top checkouts", value="\n".join(lines)[:1024], inline=False)
+    embed.set_footer(text="BUFFSQUAD ACO")
+    return embed
+
+
+def set_recap(post_id: str, **changes) -> None:
+    with db.transaction() as conn:
+        recaps = db.kv_get(conn, "recaps", [])
+        for p in recaps:
+            if p["id"] == post_id:
+                p.update(changes)
+        db.kv_set(conn, "recaps", recaps)
+
+
+async def send_pending_recaps() -> None:
+    """Posts the drop recaps admins send from the admin panel."""
+    with db.transaction() as conn:
+        pending = [p for p in db.kv_get(conn, "recaps", []) if p["status"] == "pending"]
+    for post in pending:
+        st = feed_status(int(post["channel"]))
+        if not st["ok"]:
+            set_recap(post["id"], status="failed", error=st["problem"])
+            continue
+        try:
+            # The tags in the embed show names without pinging anyone.
+            await client.get_channel(int(post["channel"])).send(embed=recap_embed(post), allowed_mentions=discord.AllowedMentions.none())
+            set_recap(post["id"], status="sent", channelName=st["name"])
+            log.info("Posted drop recap %s to #%s", post["title"], st["name"])
+        except discord.HTTPException as e:
+            set_recap(post["id"], status="failed", error=str(e)[:200])
+
+
 def feed_status(channel_id: int) -> dict:
     """What the admin panel shows next to the feed channel: its name, and whether the bot can post there."""
     channel = client.get_channel(channel_id)
@@ -220,6 +272,7 @@ async def heartbeat() -> None:
                 conn.execute("DELETE FROM kv WHERE key = 'bot_error'")  # signed in fine, so any old sign-in error is gone
             await send_pending_dms()
             await send_pending_feed()
+            await send_pending_recaps()
         except Exception:  # Keep the loop alive; the next tick retries.
             log.exception("Heartbeat failed")
         await asyncio.sleep(POLL_SECONDS)

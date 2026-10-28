@@ -948,6 +948,133 @@ byId("fees-form").addEventListener("submit", async (e) => {
   }
 });
 
+// Drop recap: a drop's successful checkouts and top members, posted to Discord by the bot.
+
+const recapModal = byId("recap-modal");
+const recapForm = byId("recap-form");
+const MEDALS = ["🥇", "🥈", "🥉"];
+const recap = { range: "today", stats: null };
+const two = (n) => String(n).padStart(2, "0");
+const localInput = (d) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}`;
+const clock = (ms) => new Date(ms).toLocaleString("en-US", { hour: "numeric", minute: "2-digit" });
+const items = (n) => plural(n, "item");
+
+function recapStart() {
+  if (recap.range === "today") return new Date().setHours(0, 0, 0, 0);
+  if (recap.range === "custom") return new Date(recapForm.elements.from.value).getTime();
+  return Date.now() - Number(recap.range) * 3600000;
+}
+
+const recapTitle = () => recapForm.elements.title.value.trim() || "Drop recap";
+
+function renderRecap() {
+  const s = recap.stats;
+  const preview = byId("recap-preview");
+  byId("recap-post").disabled = byId("recap-copy").disabled = !s || !s.checkouts;
+  if (!s) return;
+  if (!s.checkouts) {
+    preview.innerHTML = `<p class="mini-empty">No successful checkouts since ${escape(when(s.from))}.</p>`;
+    return;
+  }
+  preview.innerHTML = `
+    <strong class="recap-name">🏆 ${escape(recapTitle())}</strong>
+    <span class="recap-when">${escape(when(s.from))} – ${escape(clock(s.to))}</span>
+    <div class="recap-stats">
+      <div><span>Successful checkouts</span><b>${s.checkouts.toLocaleString()}</b></div>
+      <div><span>Items</span><b>${s.items.toLocaleString()}</b></div>
+      <div><span>Members</span><b>${s.members.toLocaleString()}</b></div>
+    </div>
+    ${s.top.length ? `<span class="recap-label">Top checkouts</span>
+    <ol class="recap-top">${s.top.map((m, i) => `
+      <li><span class="recap-place">${MEDALS[i] || `${i + 1}.`}</span><span class="recap-who">${escape(m.name)}</span>
+        <span class="recap-count"><b>${items(m.items)}</b> · ${plural(m.checkouts, "checkout")}</span></li>`).join("")}</ol>` : ""}
+    ${s.unmatched ? `<p class="field-hint">${items(s.unmatched.items)} on unmatched profiles count in the totals but not the ranking.</p>` : ""}`;
+}
+
+async function loadRecap() {
+  byId("recap-error").hidden = true;
+  const from = recapStart();
+  if (!from) return;
+  try {
+    recap.stats = await api("GET", `/api/admin/recap?from=${from}&to=${Date.now()}`);
+    if (!recapForm.elements.channel.value) recapForm.elements.channel.value = recap.stats.channel || "";
+  } catch (err) {
+    recap.stats = null;
+    byId("recap-preview").innerHTML = "";
+    byId("recap-error").textContent = err.message;
+    byId("recap-error").hidden = false;
+  }
+  renderRecap();
+}
+
+function recapText() {
+  const s = recap.stats;
+  // Plain names, not tags, so pasting it doesn't ping everyone.
+  return [`**🏆 ${recapTitle()}**`, `${when(s.from)} – ${clock(s.to)}`,
+    `**${s.checkouts}** successful checkouts · **${s.items}** items · **${s.members}** members`, "",
+    ...(s.top.length ? ["**Top checkouts**", ...s.top.map((m, i) => `${MEDALS[i] || `${i + 1}.`} ${m.name} · **${items(m.items)}** (${plural(m.checkouts, "checkout")})`)] : []),
+  ].join("\n").trim();
+}
+
+document.querySelectorAll("[data-open-recap]").forEach((btn) => btn.addEventListener("click", () => {
+  recap.stats = null;
+  byId("recap-preview").innerHTML = "";
+  if (!recapForm.elements.from.value) recapForm.elements.from.value = localInput(new Date(Date.now() - 3 * 3600000));
+  recapModal.showModal();
+  loadRecap();
+}));
+
+byId("recap-range").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  recap.range = btn.dataset.value;
+  btn.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === btn));
+  recapForm.querySelector(".recap-from").hidden = recap.range !== "custom";
+  loadRecap();
+});
+
+recapForm.elements.from.addEventListener("change", loadRecap);
+recapForm.elements.title.addEventListener("input", renderRecap);
+
+byId("recap-copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(recapText());
+    notify("Copied. Paste it in Discord.");
+  } catch {
+    notify("Couldn't copy. Try Post to Discord instead.");
+  }
+});
+
+recapForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const post = byId("recap-post");
+  const error = byId("recap-error");
+  error.hidden = true;
+  post.disabled = true;
+  post.textContent = "Posting…";
+  try {
+    const s = recap.stats;
+    const { id } = await api("POST", "/api/admin/recap", { from: s.from, to: s.to, title: recapTitle(), channel: recapForm.elements.channel.value });
+    // The bot posts it within about 10 seconds; wait to say whether it worked.
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const st = await api("GET", `/api/admin/recap/${id}`);
+      if (st.status === "sent") {
+        recapModal.close();
+        return notify(`Posted to #${st.channelName}`);
+      }
+      if (st.status === "failed") throw new Error(st.error);
+    }
+    throw new Error("The bot hasn't posted it yet. Is it online? It will post as soon as it is.");
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+  } finally {
+    post.disabled = false;
+    post.textContent = "Post to Discord";
+  }
+});
+
 // Activity
 
 const ACTIONS = {
@@ -957,7 +1084,7 @@ const ACTIONS = {
   "member.disable": "Turned off a member", "member.enable": "Turned on a member",
   "channel.add": "Added a checkout channel", "channel.remove": "Removed a checkout channel",
   "feed.set": "Set the success feed channel", "feed.clear": "Turned off the success feed",
-  "checkout.bulk_delete": "Deleted checkouts",
+  "checkout.bulk_delete": "Deleted checkouts", "recap.post": "Posted a drop recap",
   "blocked.export": "Blocked: downloading an admin's profiles", "blocked.reveal": "Blocked: revealing an admin's details",
   "blocked.disable": "Blocked: turning an admin on or off",
 };
@@ -1086,7 +1213,7 @@ memberModal.addEventListener("close", () => (openMember = null));
 
 // New checkouts appear without a reload.
 setInterval(() => {
-  if (!document.hidden && !checkoutModal.open && !confirmModal.open && ["overview", "checkouts", "channels"].includes(current())) refresh();
+  if (!document.hidden && !checkoutModal.open && !confirmModal.open && !recapModal.open &&["overview", "checkouts", "channels"].includes(current())) refresh();
 }, 15000);
 
 (async function boot() {
