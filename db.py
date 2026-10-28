@@ -7,6 +7,7 @@ secret (card number and CVV, retailer passwords, inbox keys) lives encrypted in
 """
 import contextlib
 import hashlib
+import html
 import json
 import re
 import secrets as tokens
@@ -126,6 +127,11 @@ def init() -> None:
                 conn.execute(f"ALTER TABLE checkouts ADD COLUMN {column} {decl}")
         # After the columns above, so an old database has feed_status before it's indexed.
         conn.execute("CREATE INDEX IF NOT EXISTS checkouts_feed ON checkouts(feed_status)")
+        # Checkouts saved before the parser decoded HTML codes and list bullets ("- 2x Pok&#233;mon").
+        for row in conn.execute("SELECT id, product FROM checkouts WHERE product LIKE '%&%;%' OR product LIKE '- %'").fetchall():
+            fixed = re.sub(r"^\s*[-•]\s+", "", html.unescape(row["product"]))
+            if fixed != row["product"]:
+                conn.execute("UPDATE checkouts SET product = ? WHERE id = ?", (fixed, row["id"]))
         # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
         # Dev sign-ins (dev-*) pick their own flag and are left alone.
         for row in conn.execute("SELECT id, discord_id, is_admin FROM users WHERE discord_id NOT LIKE 'dev-%'").fetchall():

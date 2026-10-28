@@ -4358,3 +4358,11 @@ a.tile:hover {
     padding: 0 10px;
   }
 }
+
+/* Desktop fits the window, but if a page is ever taller than it (a short window,
+   lots of panels), the page scrolls instead of cutting off the bottom */
+@media (min-width: 1024px) and (min-height: 640px) {
+  .main {
+    overflow-y: auto;
+  }
+}

@@ -916,3 +916,16 @@ code.revealed {
 .audit-who select option {
   background: var(--ink);
 }
+
+/* Desktop fits the window (see dashboard_proto_type.css): long lists scroll inside
+   their panel, so Latest checkouts, Members and the Master log never run off the page */
+@media (min-width: 1024px) and (min-height: 640px) {
+  [data-view="overview"] > .panel:last-child,
+  [data-view="members"] > .panel,
+  [data-view="activity"] > .panel {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 220px;
+  }
+}

@@ -10,6 +10,7 @@ parse_message() takes a plain dict so it can be tested without Discord:
     {"content": str, "author": str,
      "embeds": [{"title", "description", "author", "footer", "fields": [{"name", "value"}]}]}
 """
+import html
 import re
 
 BOTS = ["Refract", "Shikari", "Valor", "Polar", "Stellar", "Hayha", "Sniped"]
@@ -43,12 +44,14 @@ def _key(name: str) -> str:
 
 
 def clean(value) -> str:
-    """Strips Discord markdown: spoilers, code, bold, links, and <url> wrappers."""
-    text = str(value or "")
+    """Strips Discord markdown (spoilers, code, bold, links, <url> wrappers, list
+    bullets) and decodes HTML codes some bots send, like Polar's Pok&#233;mon."""
+    text = html.unescape(str(value or ""))
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)  # [label](url) -> label
     text = re.sub(r"<(https?://[^>]+)>", r"\1", text)
     text = re.sub(r"\|\||```|`|\*\*|__|~~", "", text)
     text = re.sub(r"(?<!\S)[*_](\S(?:.*?\S)?)[*_](?!\S)", r"\1", text)  # *italic* / _italic_
+    text = re.sub(r"^\s*[-•]\s+", "", text, flags=re.M)  # "- item" list bullets
     text = text.strip()
     return "" if text.lower() in EMPTY else text
 

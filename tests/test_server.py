@@ -469,10 +469,14 @@ class UpgradeTest(unittest.TestCase):
                   fee REAL NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0, stage TEXT NOT NULL DEFAULT 'confirmed',
                   result TEXT NOT NULL DEFAULT 'hit', source TEXT NOT NULL DEFAULT '', message_key TEXT UNIQUE, channel_id TEXT,
                   created_at INTEGER NOT NULL, dm_status TEXT NOT NULL DEFAULT 'none', dm_error TEXT NOT NULL DEFAULT '')""")
+                conn.execute("INSERT INTO checkouts (product, created_at) VALUES ('- 2x Pok&#233;mon Booster Bundle - Default', 0)")
             db.init()
             with db.transaction() as conn:
                 have = {r["name"] for r in conn.execute("PRAGMA table_info(checkouts)")}
+                product = conn.execute("SELECT product FROM checkouts").fetchone()["product"]
             self.assertTrue({"sku", "fee_source", "feed_status"} <= have)
+            # Saved before the parser decoded Polar's HTML codes: fixed on startup.
+            self.assertEqual(product, "2x Pokémon Booster Bundle - Default")
         finally:
             config.DB_PATH = saved
 

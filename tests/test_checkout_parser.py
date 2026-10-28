@@ -75,5 +75,16 @@ class ParseCheckouts(unittest.TestCase):
         self.assertEqual(clean("N/A"), "")
 
 
+    def test_polar_html_codes_and_bullet(self):
+        # As Polar AIO posts it: the product is a "- " bullet with the é sent as &#233;.
+        polar = embed(title="Successful Checkout 🎉", footer="Polar AIO", fields=[
+            ("Product", "- 2x [Pok&#233;mon Trading Card Game: 30th Celebration Booster Bundle Box](https://www.target.com/p/x) - Default"),
+            ("Price", "$63.98"), ("Size", "Default"), ("Site", "Target"), ("Profile", "jake-main"),
+            ("Order Number", "102003841766417"), ("Fraud Status", "REVIEW_HOLD")])
+        [c] = parse_message({"embeds": [polar]})
+        self.assertEqual(c["product"], "2x Pokémon Trading Card Game: 30th Celebration Booster Bundle Box - Default")
+        self.assertEqual((c["source"], c["retailer"], c["price"]), ("Polar", "Target", 63.98))
+
+
 if __name__ == "__main__":
     unittest.main()
