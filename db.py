@@ -140,9 +140,9 @@ def init() -> None:
             if qty:
                 conn.execute("UPDATE checkouts SET qty = ?, product = ? WHERE id = ?", (int(qty), product, row["id"]))
         rematch_checkouts(conn)
-        if not kv_get(conn, "fixed_prices_v1"):
+        if not kv_get(conn, "fixed_prices_v2"):
             fix_old_prices(conn)
-            kv_set(conn, "fixed_prices_v1", now())
+            kv_set(conn, "fixed_prices_v2", now())
         # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
         # Dev sign-ins (dev-*) pick their own flag and are left alone.
         for row in conn.execute("SELECT id, discord_id, is_admin FROM users WHERE discord_id NOT LIKE 'dev-%'").fetchall():
@@ -491,16 +491,23 @@ def fix_old_prices(conn) -> None:
     names the store in its title) get Target, as its title said, and their per-item
     price times the quantity. Polar's lose the ' - Default' ending. Then missing prices
     are filled in. Fees are redone only on the unpaid checkouts this changes."""
-    for c in conn.execute("""SELECT * FROM checkouts WHERE source = '' AND retailer = 'Unknown'
+    for c in conn.execute("SELECT id, product FROM checkouts WHERE product LIKE '% - Default'").fetchall():
+        conn.execute("UPDATE checkouts SET product = ? WHERE id = ?", (checkout_parser.trim_size(c["product"]), c["id"]))
+    # A missing store is saved blank (the panel shows "Unknown").
+    for c in conn.execute("""SELECT * FROM checkouts WHERE source = '' AND retailer IN ('', 'Unknown')
                              AND message_key IS NOT NULL AND order_no GLOB '[0-9]*'""").fetchall():
-        price = round((c["price"] or 0) * max(1, c["qty"]), 2)
+        price = c["price"] or 0
+        # The first run of this fix gave $0 ones the item's whole-order price already; only per-item ones need the quantity.
+        each = next((r["price"] / max(1, r["qty"]) for r in conn.execute(
+            "SELECT product, price, qty FROM checkouts WHERE source != '' AND price > 0 ORDER BY created_at DESC")
+            if product_key(r["product"]) == product_key(c["product"])), None)
+        if not (each and abs(each * c["qty"] - price) < 0.01):
+            price = round(price * max(1, c["qty"]), 2)
         fee, fee_source = (c["fee"], c["fee_source"])
         if not c["paid"] and c["stage"] != "canceled" and c["fee_source"] != "manual" and c["result"] == "hit":
             fee, fee_source = compute_fee(conn, "Target", c["product"], c["sku"], price, c["qty"])
         conn.execute("UPDATE checkouts SET source = 'Refract', retailer = 'Target', price = ?, fee = ?, fee_source = ? WHERE id = ?",
                      (price, fee, fee_source, c["id"]))
-    for c in conn.execute("SELECT id, product FROM checkouts WHERE product LIKE '% - Default'").fetchall():
-        conn.execute("UPDATE checkouts SET product = ? WHERE id = ?", (checkout_parser.trim_size(c["product"]), c["id"]))
     fill_prices(conn)
 
 

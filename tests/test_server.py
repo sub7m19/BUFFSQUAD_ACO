@@ -253,12 +253,17 @@ class ServerTest(ServerCase):
             refract = add("price0", product=etb, retailer="Unknown", qty=2, price=69.99, source="", order="102003841860229")
             refract_free = add("price1", product=ko, retailer="Unknown", qty=2, price=0, source="", order="102003841860230")
             polar = add("price2", product=ko + " - Default", retailer="Target", qty=2, price=23.98, source="Polar", order="902003896119304")
+            # A missing store is saved blank; and one an earlier run already gave the whole-order price.
+            blank = add("price6", product=etb, retailer="", qty=2, price=69.99, source="", order="102003841860231")
+            filled = add("price7", product=ko, retailer="", qty=2, price=23.98, source="", order="102003841860232")
             db.fix_old_prices(conn)
             get = lambda cid: conn.execute("SELECT * FROM checkouts WHERE id = ?", (cid,)).fetchone()
             target_fee = lambda price, qty: db.compute_fee(conn, "Target", etb, "", price, qty)[0]
             self.assertEqual((get(refract)["source"], get(refract)["retailer"], get(refract)["price"]), ("Refract", "Target", 139.98))
             self.assertEqual(get(refract)["fee"], target_fee(139.98, 2))
             self.assertEqual(get(polar)["product"], ko)
+            self.assertEqual((get(blank)["retailer"], get(blank)["price"]), ("Target", 139.98))
+            self.assertEqual((get(filled)["retailer"], get(filled)["price"], get(filled)["fee"]), ("Target", 23.98, target_fee(23.98, 2)))
             # Refract's $0 one takes Polar's price for the same item.
             self.assertEqual((get(refract_free)["price"], get(refract_free)["fee"]), (23.98, target_fee(23.98, 2)))
 
