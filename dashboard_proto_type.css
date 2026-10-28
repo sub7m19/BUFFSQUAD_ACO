@@ -4297,3 +4297,42 @@ a.tile:hover {
     white-space: normal;
   }
 }
+
+/* Admins: the Member view / Admin panel switch and the version label in the sidebar */
+.app-version {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+  cursor: default;
+}
+
+.app-version.fresh {
+  color: var(--cyan);
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .app-version {
+    display: none;
+  }
+}
+
+/* Small phones: the switch shows only its icon so the top bar fits */
+@media (max-width: 400px) {
+  .member-view span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .sidebar-foot .member-view {
+    padding: 0 10px;
+  }
+}

@@ -1,5 +1,6 @@
 // BUFFSQUAD admin panel. Everything comes from /api/admin/*, which only answers
-// for Discord accounts listed in ADMIN_DISCORD_IDS.
+// for Discord accounts listed in ADMIN_DISCORD_IDS. The Master log (#activity) is
+// only for OWNER_DISCORD_IDS.
 
 const STAGES = {
   confirmed: { label: "Confirmed", icon: "check", tone: "cyan" },
@@ -18,7 +19,7 @@ const DM = {
 const ROUTES = ["overview", "checkouts", "channels", "members", "export", "settings", "activity"];
 
 const data = { members: [], checkouts: [], settings: null };
-const filters = { view: "", search: "", memberSearch: "" };
+const filters = { view: "", search: "", memberSearch: "", auditKind: "admin", auditWho: "" };
 // Checkouts page selection mode: ids ticked for deleting.
 const selection = { on: false, ids: new Set() };
 
@@ -492,7 +493,7 @@ async function openMemberModal(id) {
           ${saved.cards.has(String(p.id)) ? revealButton("card", p.id, "Full card") : p.last4 ? `<small>Number not saved on server</small>` : ""}</dd>
       </dl>
     </article>`).join("")}</div>
-    ${active.length ? `<p class="field-hint m-hint">Downloads are AYCD JSON named by bot name. Paused profiles are left out, and each download is logged under Activity.</p>` : ""}`
+    ${active.length ? `<p class="field-hint m-hint">Downloads are AYCD JSON named by bot name. Paused profiles are left out, and each download is logged.</p>` : ""}`
     : empty("user", "No profiles yet.");
 
   // Retailer accounts
@@ -955,18 +956,57 @@ const ACTIONS = {
   "checkout.bulk_delete": "Deleted checkouts",
 };
 
+const ROLES = { owner: "Owner", admin: "Admin" };
+
 async function loadAudit() {
-  const rows = await api("GET", "/api/admin/audit");
+  const params = new URLSearchParams({ kind: filters.auditKind, who: filters.auditWho });
+  const { rows, people } = await api("GET", `/api/admin/audit?${params}`);
+  byId("audit-who").innerHTML = `<option value="">Everyone</option>` + people.map((p) =>
+    `<option value="${p.id}"${String(p.id) === filters.auditWho ? " selected" : ""}>${escape(p.name)}</option>`).join("");
   byId("audit-list").innerHTML = rows.map((r) => `
     <li>
       <span class="avatar round">${escape(initials(r.who || "?"))}</span>
       <div class="checkout-info">
-        <strong>${escape(ACTIONS[r.action] || r.action)}</strong>
-        <span>${escape(r.who || "Someone")} · ${escape(r.detail)}</span>
+        <strong>${escape(r.who || "Someone")}${ROLES[r.role] ? ` <span class="status ${r.role === "owner" ? "paid" : "paused"}">${ROLES[r.role]}</span>` : ""} · ${escape(ACTIONS[r.action] || r.action)}</strong>
+        <span>${escape(r.detail)}</span>
       </div>
       <span class="field-hint">${when(r.at)}</span>
-    </li>`).join("") || `<li class="mini-empty">Nothing yet.</li>`;
+    </li>`).join("") || `<li class="mini-empty">Nothing here yet.</li>`;
 }
+
+document.querySelector('[data-filter="audit-kind"]').addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  filters.auditKind = btn.dataset.value;
+  btn.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === btn));
+  loadAudit().catch((err) => notify(err.message));
+});
+
+byId("audit-who").addEventListener("change", (e) => {
+  filters.auditWho = e.target.value;
+  loadAudit().catch((err) => notify(err.message));
+});
+
+// Version: which update the site is on. When a newer one goes live, the label
+// says so and reloads the page on click.
+
+let loadedVersion = null;
+
+async function checkVersion() {
+  const v = await api("GET", "/api/version");
+  if (!v.commit) return;
+  loadedVersion ??= v.commit;
+  const label = byId("app-version");
+  const fresh = v.commit !== loadedVersion;
+  label.hidden = false;
+  label.classList.toggle("fresh", fresh);
+  label.textContent = fresh ? `v${v.number} is live · Reload` : `v${v.number} · ${v.commit}`;
+  label.title = `Updated ${when(v.at)}: ${v.subject}`;
+}
+
+byId("app-version").addEventListener("click", (e) => {
+  if (e.currentTarget.classList.contains("fresh")) location.reload();
+});
 
 // Routing and clicks
 
@@ -1048,8 +1088,13 @@ setInterval(() => {
     const me = await api("GET", "/api/me");
     byId("user-chip-name").textContent = me.user.name;
     byId("user-avatar").textContent = initials(me.user.name);
+    // The Master log is the owner's alone.
+    if (me.user.isOwner) byId("nav-activity").hidden = false;
+    else ROUTES.splice(ROUTES.indexOf("activity"), 1);
   } catch {
     // Signed out: api() already redirected.
   }
   route();
+  checkVersion().catch(() => {});
+  setInterval(() => checkVersion().catch(() => {}), 60000);
 })();

@@ -50,8 +50,11 @@ DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "")
 # Invite link for the BUFFSQUAD server, shown to people who try to sign in before joining.
 DISCORD_INVITE_URL = os.environ.get("DISCORD_INVITE_URL", "https://discord.gg/7SGtgcEq")
+# Discord user IDs that see the master log: every admin's downloads, reveals and
+# changes. Admins can't see it. Owners get the admin panel too.
+OWNER_DISCORD_IDS = _ids("OWNER_DISCORD_IDS")
 # Discord user IDs that get the admin panel.
-ADMIN_DISCORD_IDS = _ids("ADMIN_DISCORD_IDS")
+ADMIN_DISCORD_IDS = _ids("ADMIN_DISCORD_IDS") | OWNER_DISCORD_IDS
 # Channels the bot reads checkout webhooks from.
 CHECKOUT_CHANNEL_IDS = {int(v) for v in _ids("CHECKOUT_CHANNEL_IDS")}
 

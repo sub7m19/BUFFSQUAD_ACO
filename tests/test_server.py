@@ -10,7 +10,7 @@ from pathlib import Path
 TMP = tempfile.mkdtemp()
 os.environ.update({
     "DB_PATH": str(Path(TMP) / "test.db"), "DEV_LOGIN": "1", "BUFFSQUAD_SECRET_KEY": "",
-    "DISCORD_GUILD_ID": "", "ADMIN_DISCORD_IDS": "",
+    "DISCORD_GUILD_ID": "", "ADMIN_DISCORD_IDS": "", "OWNER_DISCORD_IDS": "dev-owner",
 })
 
 import config  # noqa: E402
@@ -73,6 +73,10 @@ class ServerCase(unittest.TestCase):
     def client(self):
         return Client(self.port)
 
+    def owner(self):
+        """Signed in as the owner (OWNER_DISCORD_IDS above), who sees the master log."""
+        return self.client().login("owner", admin=True)
+
 
 class ServerTest(ServerCase):
     def test_private_files_are_not_served(self):
@@ -131,8 +135,9 @@ class ServerTest(ServerCase):
         self.assertEqual(detail["settings"]["profiles"][0]["botName"], "alice-main")
         _, revealed, _ = admin.request("POST", "/api/admin/reveal", {"userId": alice_id, "kind": "card", "ref": "p1"})
         self.assertEqual(revealed["value"]["number"], "4242424242424242")
-        _, audit, _ = admin.request("GET", "/api/admin/audit")
-        self.assertIn("reveal.card", [a["action"] for a in audit])
+        _, audit, _ = self.owner().request("GET", "/api/admin/audit?kind=downloads")
+        reveal = next(a for a in audit["rows"] if a["action"] == "reveal.card")
+        self.assertEqual((reveal["who"], reveal["role"], reveal["detail"]), ("Boss", "admin", "alice: card on profile Main (alice-main)"))
 
         status, exported, headers = admin.request("GET", "/api/admin/export/profiles?cards=1")
         self.assertEqual(status, 200)
@@ -141,12 +146,21 @@ class ServerTest(ServerCase):
         self.assertEqual(alice_profile["paymentDetails"]["cardNumber"], "4242424242424242")
         _, text, _ = admin.request("GET", "/api/admin/export/accounts?retailer=Target")
         self.assertIn(b"a@x.com:hunter2", text)
+        _, audit, _ = self.owner().request("GET", "/api/admin/audit?kind=downloads")
+        details = {a["action"]: a["detail"] for a in reversed(audit["rows"])}
+        self.assertIn("alice: alice-main", details["export.profiles"])
+        self.assertIn("alice: a@x.com", details["export.accounts"])
 
         # Assign the unmatched checkout to Alice and queue her DM.
         _, unmatched_list, _ = admin.request("GET", "/api/admin/checkouts?view=unmatched")
         self.assertEqual([c["id"] for c in unmatched_list], [unmatched])
         _, updated, _ = admin.request("PATCH", f"/api/admin/checkouts/{unmatched}", {"userId": alice_id, "notify": True, "stage": "shipped", "fee": 15})
         self.assertEqual((updated["userId"], updated["dmStatus"], updated["stage"], updated["fee"]), (alice_id, "pending", "shipped", 15))
+        _, audit, _ = self.owner().request("GET", "/api/admin/audit?kind=changes")
+        edit = next(a for a in audit["rows"] if a["action"] == "checkout.edit")
+        self.assertIn("stage confirmed → shipped", edit["detail"])
+        self.assertIn("member unmatched → alice", edit["detail"])
+        self.assertIn("fee $0.00 → $15.00", edit["detail"])
 
         # Deleting the profile on the dashboard deletes its saved card.
         alice.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": []})
@@ -182,8 +196,35 @@ class ServerTest(ServerCase):
         self.assertEqual(sorted(p["name"] for p in out), ["dana-both", "dana-pc"])
         self.assertTrue(all(p["paymentDetails"]["cardNumber"] == "" for p in out))
 
-        _, audit, _ = admin.request("GET", "/api/admin/audit")
-        self.assertTrue(any(a["action"] == "export.profiles" and "dana's" in a["detail"] for a in audit))
+        _, audit, _ = self.owner().request("GET", "/api/admin/audit")
+        self.assertTrue(any(a["action"] == "export.profiles" and "dana's" in a["detail"] and "dana: dana-pc, dana-both" in a["detail"]
+                            for a in audit["rows"]))
+
+    def test_master_log_is_the_owners_alone(self):
+        admin = self.client().login("deputy", admin=True)
+        admin.request("DELETE", "/api/admin/feed-channel")
+        # Admins can't read it, and the admin panel doesn't offer it to them.
+        self.assertEqual(admin.request("GET", "/api/admin/audit")[0], 403)
+        _, me, _ = admin.request("GET", "/api/me")
+        self.assertEqual((me["user"]["isAdmin"], me["user"]["isOwner"]), (True, False))
+
+        owner = self.owner()
+        _, me, _ = owner.request("GET", "/api/me")
+        self.assertTrue(me["user"]["isOwner"])
+        _, log, _ = owner.request("GET", "/api/admin/audit")
+        deputy = next(p["id"] for p in log["people"] if p["name"] == "Deputy")
+        # Sign-ins are left out unless asked for; the who filter narrows to one person.
+        self.assertNotIn("login", {a["action"] for a in log["rows"]})
+        _, mine, _ = owner.request("GET", f"/api/admin/audit?who={deputy}")
+        self.assertEqual({a["action"] for a in mine["rows"]}, {"feed.clear"})
+        _, logins, _ = owner.request("GET", "/api/admin/audit?kind=logins")
+        self.assertEqual({a["action"] for a in logins["rows"]}, {"login"})
+
+    def test_version_for_admins(self):
+        _, version, _ = self.client().login("verboss", admin=True).request("GET", "/api/version")
+        self.assertEqual(version, main.VERSION_INFO)
+        self.assertEqual(self.client().login("vermember").request("GET", "/api/version")[0], 403)
+        self.assertEqual(self.client().request("GET", "/api/version")[0], 401)
 
     def test_health_check(self):
         status, health, _ = self.client().request("GET", "/api/health")
@@ -297,8 +338,9 @@ class ServerTest(ServerCase):
         self.assertEqual(left, {kept, other})
 
         self.assertEqual(self.client().login("nobody").request("POST", "/api/admin/checkouts/delete", {"ids": [kept]})[0], 403)
-        _, audit, _ = admin.request("GET", "/api/admin/audit")
-        self.assertTrue(any(a["action"] == "checkout.bulk_delete" and "2 checkouts (selected)" in a["detail"] for a in audit))
+        _, audit, _ = self.owner().request("GET", "/api/admin/audit")
+        self.assertTrue(any(a["action"] == "checkout.bulk_delete" and "2 checkouts (selected): #" in a["detail"]
+                            and "ZZBULK pick 1" in a["detail"] for a in audit["rows"]))
 
     def test_icloud_inbox_check(self):
         """iCloud signs in with the part before @ for iCloud addresses; both forms are tried."""

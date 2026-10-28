@@ -30,16 +30,28 @@ AYCD_VERIFY_URL = "https://inbox-api.aycd.io/api/v1/user/verify"
 DISCORD_API = "https://discord.com/api/v10"
 
 
-def _version() -> str:
-    """The git commit this copy of the code is at, shown by /api/health."""
+def _git(*args: str) -> str:
     try:
-        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=config.ROOT, capture_output=True, text=True, timeout=5)
+        out = subprocess.run(["git", *args], cwd=config.ROOT, capture_output=True, text=True, timeout=5)
         return out.stdout.strip() if out.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):
         return ""
 
 
-VERSION = _version()
+def _version() -> dict:
+    """The git commit this copy of the code is at. Admins see it in the sidebar as
+    "v<number>", the number going up by one with every update pushed."""
+    commit, _, rest = _git("log", "-1", "--format=%h%n%ct%n%s").partition("\n")
+    at, _, subject = rest.partition("\n")
+    if not commit:
+        return {}
+    return {"commit": commit, "number": int(_git("rev-list", "--count", "HEAD") or 0),
+            "at": int(at or 0) * 1000, "subject": subject}
+
+
+VERSION_INFO = _version()
+# The commit id alone, for /api/health and the deploy log.
+VERSION = VERSION_INFO.get("commit", "")
 SESSION_COOKIE = "bs_session"
 OAUTH_COOKIE = "bs_oauth"
 
@@ -131,6 +143,11 @@ def in_guild(discord_id: str) -> bool:
 def safe_next(value: str) -> str:
     """Only same-site paths, so the login can't bounce members to another site."""
     return value if value.startswith("/") and not value.startswith("//") and "\\" not in value else "/dashboard"
+
+
+def is_owner(user) -> bool:
+    """Owners (OWNER_DISCORD_IDS) see the master log; other admins don't."""
+    return user["discord_id"] in config.OWNER_DISCORD_IDS
 
 
 NEW_TAB = ' target="_blank" rel="noreferrer"'
@@ -432,6 +449,11 @@ class Handler(SimpleHTTPRequestHandler):
                 "configured": bool(config.DISCORD_BOT_TOKEN), "lastSeen": bot["at"] if bot else None,
                 "error": error["message"] if error else None}})
 
+        if route == ("GET", "/api/version"):
+            # Which update the site is on, for the label admins see on the dashboard and admin panel.
+            self.require_admin(conn)
+            return self.send_json(200, VERSION_INFO)
+
         if route == ("GET", "/api/me"):
             return self.send_json(200, member_payload(conn, self.require_user(conn)))
 
@@ -493,7 +515,8 @@ def member_payload(conn, user) -> dict:
         "meta": f"{r['retailer']} · Qty {r['qty']}", "at": r["created_at"] * 1000,
     } for r in rows[:8]]
     return {
-        "user": {"name": user["display_name"] or user["username"], "avatar": user["avatar"], "isAdmin": bool(user["is_admin"])},
+        "user": {"name": user["display_name"] or user["username"], "avatar": user["avatar"], "isAdmin": bool(user["is_admin"]),
+                 "isOwner": is_owner(user)},
         "settings": db.user_settings(user),
         "saved": db.saved_secrets(conn, user["id"]),
         "checkouts": [db.checkout_json(r, member_view=True) for r in hits],
@@ -558,6 +581,75 @@ def channel_id_from(body: dict) -> str:
     return channel_id
 
 
+# The owner's master log filters: which audit rows each choice shows.
+AUDIT_KINDS = {
+    "admin": "audit.action != 'login'",
+    "downloads": "(audit.action LIKE 'export.%' OR audit.action LIKE 'reveal.%')",
+    "changes": "audit.action != 'login' AND audit.action NOT LIKE 'export.%' AND audit.action NOT LIKE 'reveal.%'",
+    "logins": "audit.action = 'login'",
+    "all": "1 = 1",
+}
+
+
+def fee_text(kind: str, amount) -> str:
+    return f"{amount:g}%" if kind == "percent" else f"${amount:.2f}" + (" per item" if kind == "per_item" else "")
+
+
+def member_name(conn, user_id) -> str:
+    row = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone() if user_id else None
+    return row["username"] if row else "unmatched"
+
+
+def checkout_label(conn, checkout_id: int, row=None) -> str:
+    """A checkout as the master log names it: #id, item, member, store and fee."""
+    c = row or conn.execute("SELECT * FROM checkouts WHERE id = ?", (checkout_id,)).fetchone()
+    if not c:
+        return f"#{checkout_id}"
+    return f"#{c['id']} {c['product'] or 'Unknown item'} ({member_name(conn, c['user_id'])}, {c['retailer'] or 'unknown store'}, fee ${c['fee']:.2f})"
+
+
+def checkout_changes(conn, old, sets: dict) -> str:
+    """What an edit changed, old to new, e.g. "fee $5.00 → $8.00, paid no → yes"."""
+    def show(col, value):
+        if col in ("fee", "price"):
+            return f"${float(value or 0):.2f}"
+        if col == "paid":
+            return "yes" if value else "no"
+        if col == "user_id":
+            return member_name(conn, value)
+        return str(value) if value not in (None, "") else "blank"
+
+    labels = {"order_no": "order", "user_id": "member"}
+    parts = []
+    for col, new in sets.items():
+        if col in ("fee_source", "dm_error"):
+            continue
+        if col == "dm_status":
+            parts.append("sent the DM again" if new == "pending" else f"DM {new}")
+        elif show(col, old[col]) != show(col, new):
+            parts.append(f"{labels.get(col, col)} {show(col, old[col])} → {show(col, new)}")
+    return ", ".join(parts) or "no changes"
+
+
+def secret_label(conn, user_id, kind: str, ref: str) -> str:
+    """Whose card, password or inbox key was revealed, by profile name or account email."""
+    member = conn.execute("SELECT username, settings FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not member:
+        return f"member {user_id} {ref}"
+    settings = json.loads(member["settings"]) if member["settings"] else {}
+    if kind == "card":
+        p = next((p for p in settings.get("profiles", []) if str(p.get("id")) == ref), {})
+        bot = conn.execute("SELECT bot_name FROM profiles WHERE user_id = ? AND ref = ?", (user_id, ref)).fetchone()
+        return f"{member['username']}: card on profile {p.get('label') or ref}" + (f" ({bot['bot_name']})" if bot else "")
+    if kind == "account":
+        for store, accounts in (settings.get("accounts") or {}).items():
+            a = next((a for a in accounts or [] if isinstance(a, dict) and str(a.get("id")) == ref), None)
+            if a:
+                return f"{member['username']}: {store} password for {a.get('email')}"
+        return f"{member['username']}: account password {ref}"
+    return f"{member['username']}: inbox key"
+
+
 def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
     query = parse_qs(h.url.query)
     q = lambda name: (query.get(name) or [""])[0]  # noqa: E731
@@ -620,8 +712,7 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         value = db.get_secret(conn, user_id, kind, "inbox" if kind == "inbox" else ref)
         if value is None:
             raise AppError(404, "Nothing saved for that.")
-        member = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
-        db.audit(conn, admin["id"], f"reveal.{kind}", f"{member['username'] if member else user_id} {ref}")
+        db.audit(conn, admin["id"], f"reveal.{kind}", secret_label(conn, user_id, kind, ref))
         return h.send_json(200, {"value": value})
 
     if (method, path) == ("GET", "/api/admin/checkouts"):
@@ -646,11 +737,14 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             ids = [r["id"] for r in conn.execute(f"SELECT id FROM checkouts WHERE id IN ({','.join('?' * len(ids))})", ids)] if ids else []
         if body.get("dryRun"):
             return h.send_json(200, {"count": len(ids)})
+        gone = [checkout_label(conn, i) for i in ids[:25]]
         for start in range(0, len(ids), 500):
             chunk = ids[start:start + 500]
             conn.execute(f"DELETE FROM checkouts WHERE id IN ({','.join('?' * len(chunk))})", chunk)
         scope = "all in view " + (body.get("view") or "hits") + (f", search '{body.get('q')}'" if body.get("q") else "") if body.get("all") else "selected"
-        db.audit(conn, admin["id"], "checkout.bulk_delete", f"{len(ids)} checkout{'' if len(ids) == 1 else 's'} ({scope})")
+        more = f"; and {len(ids) - len(gone)} more" if len(ids) > len(gone) else ""
+        db.audit(conn, admin["id"], "checkout.bulk_delete",
+                 f"{len(ids)} checkout{'' if len(ids) == 1 else 's'} ({scope})" + (f": {'; '.join(gone)}{more}" if gone else ""))
         return h.send_json(200, {"ok": True, "deleted": len(ids)})
 
     if (method, path) == ("POST", "/api/admin/checkouts"):
@@ -665,7 +759,7 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             "fee": float(body["fee"]) if body.get("fee") not in (None, "") else None,
         }
         new_id = db.record_checkout(conn, parsed, user_id=user_id, source="manual", notify=bool(body.get("notify")))
-        db.audit(conn, admin["id"], "checkout.add", f"#{new_id} {parsed['product']}")
+        db.audit(conn, admin["id"], "checkout.add", checkout_label(conn, new_id))
         return h.send_json(200, {"ok": True, "id": new_id})
 
     if path.startswith("/api/admin/checkouts/") and item_id is not None:
@@ -673,8 +767,8 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         if not c:
             raise AppError(404, "No such checkout.")
         if method == "DELETE":
+            db.audit(conn, admin["id"], "checkout.delete", checkout_label(conn, item_id, c))
             conn.execute("DELETE FROM checkouts WHERE id = ?", (item_id,))
-            db.audit(conn, admin["id"], "checkout.delete", f"#{item_id} {c['product']}")
             return h.send_json(200, {"ok": True})
         if method == "PATCH":
             body = h.body()
@@ -703,7 +797,7 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
                 sets["dm_status"], sets["dm_error"] = "pending", ""
             if sets:
                 conn.execute(f"UPDATE checkouts SET {', '.join(f'{k} = ?' for k in sets)} WHERE id = ?", [*sets.values(), item_id])
-                db.audit(conn, admin["id"], "checkout.edit", f"#{item_id} {', '.join(sets)}")
+                db.audit(conn, admin["id"], "checkout.edit", f"{checkout_label(conn, item_id, c)}: {checkout_changes(conn, c, sets)}")
             row = conn.execute(CHECKOUT_SELECT + " WHERE checkouts.id = ?", (item_id,)).fetchone()
             return h.send_json(200, db.checkout_json(row))
 
@@ -716,7 +810,7 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             users = conn.execute("SELECT * FROM users WHERE disabled = 0 AND settings IS NOT NULL").fetchall()
         else:
             users = conn.execute("SELECT * FROM users WHERE id = ? AND settings IS NOT NULL", (user_id,)).fetchall()
-        out = []
+        out, taken = [], {}
         for u in users:
             settings = json.loads(u["settings"])
             names = {p["ref"]: p["bot_name"] for p in conn.execute("SELECT ref, bot_name FROM profiles WHERE user_id = ?", (u["id"],))}
@@ -724,9 +818,13 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
                 if not p.get("active", True) or (retailer and retailer not in p.get("sites", [])):
                     continue
                 card = db.get_secret(conn, u["id"], "card", str(p.get("id"))) if with_cards else None
-                out.append(aycd.to_aycd(p, names.get(str(p.get("id")), p.get("label", "")), card))
+                bot_name = names.get(str(p.get("id")), p.get("label", ""))
+                out.append(aycd.to_aycd(p, bot_name, card))
+                taken.setdefault(u["username"], []).append(bot_name)
         who = f"{users[0]['username']}'s " if user_id is not None and users else ""
-        db.audit(conn, admin["id"], "export.profiles", f"{len(out)} {who}profiles, {retailer or 'all sites'}, cards {'on' if with_cards else 'off'}")
+        db.audit(conn, admin["id"], "export.profiles",
+                 f"{len(out)} {who}profiles, {retailer or 'all sites'}, cards {'on' if with_cards else 'off'}"
+                 + (". " + "; ".join(f"{name}: {', '.join(bots)}" for name, bots in taken.items()) if taken else ""))
         stamp = time.strftime("%Y-%m-%d")
         parts = ["buffsquad", re.sub(r"[^a-z0-9]+", "-", users[0]["username"].lower()) if who else "",
                  retailer.lower().replace(" ", "-") if retailer else "", "profiles", stamp]
@@ -736,13 +834,15 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         retailer = q("retailer")
         if retailer not in config.RETAILERS:
             raise AppError(400, "Pick a retailer.")
-        lines = []
+        lines, taken = [], {}
         for u in conn.execute("SELECT * FROM users WHERE disabled = 0 AND settings IS NOT NULL").fetchall():
             for a in json.loads(u["settings"]).get("accounts", {}).get(retailer, []):
                 password = db.get_secret(conn, u["id"], "account", str(a.get("id")))
                 if password:
                     lines.append(f"{a.get('email')}:{password}")
-        db.audit(conn, admin["id"], "export.accounts", f"{len(lines)} {retailer} accounts")
+                    taken.setdefault(u["username"], []).append(str(a.get("email")))
+        db.audit(conn, admin["id"], "export.accounts", f"{len(lines)} {retailer} accounts"
+                 + (". " + "; ".join(f"{name}: {', '.join(emails)}" for name, emails in taken.items()) if taken else ""))
         slug = retailer.lower().replace(" ", "-")
         return h.send_file(f"buffsquad-{slug}-accounts.txt", "\r\n".join(lines) + "\r\n", "text/plain")
 
@@ -775,7 +875,8 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             rules.append({"id": rule_id, "match": "sku" if r.get("match") == "sku" else "product", "text": text,
                           "retailer": str(r.get("retailer") or "")[:60], "kind": kind, "amount": amount})
         db.kv_set(conn, "fee_rules", rules)
-        db.audit(conn, admin["id"], "settings.rules", f"{len(rules)} fee rule{'' if len(rules) == 1 else 's'}")
+        summary = "; ".join(f"{r['text']} ({r['retailer'] or 'any store'}): {fee_text(r['kind'], r['amount'])}" for r in rules)
+        db.audit(conn, admin["id"], "settings.rules", f"{len(rules)} fee rule{'' if len(rules) == 1 else 's'}" + (f". {summary}" if summary else ""))
         return h.send_json(200, {"ok": True, "rules": rules})
 
     if (method, path) == ("POST", "/api/admin/fee-rules/apply"):
@@ -859,10 +960,31 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         return h.send_json(200, {"ok": True})
 
     if (method, path) == ("GET", "/api/admin/audit"):
+        # The master log: owners only, so admins can't see what's recorded about them.
+        if not is_owner(admin):
+            raise AppError(403, "Only the owner can see the master log.")
+        where, args = AUDIT_KINDS.get(q("kind"), AUDIT_KINDS["admin"]), []
+        who = _int(q("who"))
+        if who is not None:
+            where += " AND audit.user_id = ?"
+            args.append(who)
         rows = conn.execute(
-            """SELECT audit.*, users.username FROM audit LEFT JOIN users ON users.id = audit.user_id
-               ORDER BY audit.id DESC LIMIT 300""").fetchall()
-        return h.send_json(200, [{"at": r["at"] * 1000, "who": r["username"], "action": r["action"], "detail": r["detail"]} for r in rows])
+            f"""SELECT audit.*, users.username, users.display_name, users.discord_id, users.is_admin
+                FROM audit LEFT JOIN users ON users.id = audit.user_id WHERE {where} ORDER BY audit.id DESC LIMIT 500""", args).fetchall()
+        # Everyone who's done something besides signing in, for the "who" filter.
+        people = conn.execute(
+            """SELECT DISTINCT users.id, COALESCE(NULLIF(users.display_name, ''), users.username) AS name
+               FROM audit JOIN users ON users.id = audit.user_id WHERE audit.action != 'login' ORDER BY name""").fetchall()
+
+        def role(r):
+            if r["discord_id"] is None:
+                return None
+            return "owner" if r["discord_id"] in config.OWNER_DISCORD_IDS else "admin" if r["is_admin"] else "member"
+
+        return h.send_json(200, {
+            "rows": [{"at": r["at"] * 1000, "who": r["display_name"] or r["username"], "username": r["username"],
+                      "role": role(r), "action": r["action"], "detail": r["detail"]} for r in rows],
+            "people": [dict(p) for p in people]})
 
     raise AppError(404, "Not found.")
 

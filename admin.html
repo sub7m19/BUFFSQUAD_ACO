@@ -61,10 +61,11 @@
         <a href="#members" data-route="members"><svg class="icon"><use href="#i-user"/></svg><span>Members</span></a>
         <a href="#export" data-route="export"><svg class="icon"><use href="#i-download"/></svg><span>Export</span></a>
         <a href="#settings" data-route="settings"><svg class="icon"><use href="#i-gear"/></svg><span>Settings</span></a>
-        <a href="#activity" data-route="activity"><svg class="icon"><use href="#i-list"/></svg><span>Activity</span></a>
+        <a href="#activity" data-route="activity" id="nav-activity" hidden><svg class="icon"><use href="#i-list"/></svg><span>Master log</span></a>
       </nav>
       <div class="sidebar-foot">
         <a class="button ghost small member-view" href="/dashboard" title="Member view"><svg class="icon"><use href="#i-user"/></svg><span>Member view</span></a>
+        <button class="app-version" type="button" id="app-version" hidden></button>
         <div class="user-chip">
           <span class="avatar round" id="user-avatar">A</span>
           <span class="user-name"><strong id="user-chip-name">Admin</strong></span>
@@ -250,7 +251,7 @@
               <input type="checkbox" id="export-cards" checked>
               <span>Include full card numbers and CVV</span>
             </label>
-            <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg><span>The file holds card numbers in plain text. Import it, then delete it. Every export is logged under Activity.</span></p>
+            <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg><span>The file holds card numbers in plain text. Import it, then delete it. Every export is logged.</span></p>
             <button class="button primary" type="button" id="export-profiles"><svg class="icon"><use href="#i-download"/></svg>Download profiles</button>
           </section>
 
@@ -306,11 +307,23 @@
       <section class="view" data-view="activity" aria-labelledby="activity-title" hidden>
         <header class="page-head">
           <div>
-            <h1 id="activity-title">Activity</h1>
-            <p class="page-sub">Sign-ins, reveals, exports and edits, newest first.</p>
+            <h1 id="activity-title">Master log</h1>
+            <p class="page-sub">What every admin downloaded, revealed and changed, and whose. Only you can see this page.</p>
           </div>
         </header>
         <section class="panel">
+          <div class="toolbar">
+            <div class="segment tabs admin-tabs" role="group" aria-label="Show" data-filter="audit-kind">
+              <button type="button" aria-pressed="true" data-value="admin">Admin actions</button>
+              <button type="button" aria-pressed="false" data-value="downloads">Downloads &amp; reveals</button>
+              <button type="button" aria-pressed="false" data-value="changes">Changes</button>
+              <button type="button" aria-pressed="false" data-value="logins">Sign-ins</button>
+            </div>
+            <label class="audit-who">
+              <span class="sr-only">Who</span>
+              <select id="audit-who"><option value="">Everyone</option></select>
+            </label>
+          </div>
           <ul class="checkout-list audit-list" id="audit-list"></ul>
         </section>
       </section>

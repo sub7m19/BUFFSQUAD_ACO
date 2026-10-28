@@ -39,6 +39,7 @@ Then right-click things to **Copy ID**. Keep the values below in a note; part 4 
 5. Copy these IDs:
    - Right-click your **server icon** → **Copy Server ID** → `DISCORD_GUILD_ID`
    - Right-click **your own name** → **Copy User ID** (and any other admins') → `ADMIN_DISCORD_IDS`, separated by commas
+   - Your own User ID again → `OWNER_DISCORD_IDS`, so only you see the admin panel's Master log
    - Right-click the **checkout channel** → **Copy Channel ID** (you can also add channels later in the admin panel)
 
 ## Part 3: Cloudflare tunnel (about 5 minutes, after part 1 shows the domain as active)

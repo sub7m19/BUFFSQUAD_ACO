@@ -98,6 +98,10 @@
   cursor: default;
 }
 
+.nav a[hidden] {
+  display: none;
+}
+
 /* Forms on Export and Settings */
 
 .admin-form {
@@ -412,9 +416,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Seven tabs in the phone bottom bar */
+  /* Six or seven tabs in the phone bottom bar (the Master log is the owner's only) */
   .nav {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
   }
 
   .nav a {
@@ -880,18 +886,28 @@ code.revealed {
   }
 }
 
-/* Small phones: the Member view button shows only its icon so the top bar fits */
-@media (max-width: 400px) {
-  .member-view span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
+/* Master log: full details on each line, and the who filter beside the tabs */
+.audit-list .checkout-info span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
 
-  .sidebar-foot .member-view {
-    padding: 0 10px;
-  }
+.audit-list .checkout-info .status {
+  display: inline-flex;
+  margin: 0 0 0 4px;
+  vertical-align: middle;
+}
+
+.audit-who select {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--white);
+}
+
+.audit-who select option {
+  background: var(--ink);
 }

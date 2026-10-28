@@ -1412,9 +1412,41 @@ function applyRemote(data) {
   filters.inboxMethod = state.inbox.method || "aycd";
   applySaved(data.saved);
   document.querySelector(".logout").href = "/auth/logout";
+  if (data.user.isAdmin) {
+    byId("admin-link").hidden = false;
+    checkVersion();
+    setInterval(checkVersion, 60000);
+  }
   const inboxNote = document.querySelector('[data-view="inbox"] .modal-note span');
   if (inboxNote) inboxNote.textContent = "Your key or app password is stored encrypted on the BUFFSQUAD server and is never saved in your browser.";
 }
+
+// Admins only: which update the site is on. When a newer one goes live, the label
+// says so and reloads the page on click.
+let loadedVersion = null;
+
+async function checkVersion() {
+  try {
+    const res = await fetch("/api/version", { headers: { Accept: "application/json" } });
+    if (!res.ok) return;
+    const v = await res.json();
+    if (!v.commit) return;
+    loadedVersion ??= v.commit;
+    const label = byId("app-version");
+    const fresh = v.commit !== loadedVersion;
+    const at = new Date(v.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    label.hidden = false;
+    label.classList.toggle("fresh", fresh);
+    label.textContent = fresh ? `v${v.number} is live · Reload` : `v${v.number} · ${v.commit}`;
+    label.title = `Updated ${at}: ${v.subject}`;
+  } catch {
+    // Offline for a moment: try again next time.
+  }
+}
+
+byId("app-version").addEventListener("click", (e) => {
+  if (e.currentTarget.classList.contains("fresh")) location.reload();
+});
 
 async function boot() {
   try {
