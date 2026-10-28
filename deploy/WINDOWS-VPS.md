@@ -1,7 +1,7 @@
 # Putting BUFFSQUAD on the Windows VPS
 
 The site and the Discord bot run on the VPS. Cloudflare sits in front: visitors reach
-`https://app.buffsquad.net` through a Cloudflare tunnel, so the VPS opens no ports.
+`https://aco.buffsquad.net` through a Cloudflare tunnel, so the VPS opens no ports.
 Every minute the VPS checks GitHub; when there's a new version it tests it, switches to
 it, and goes back to the old one if anything fails.
 
@@ -30,7 +30,7 @@ Then right-click things to **Copy ID**. Keep the values below in a note; part 4 
 2. **OAuth2** page:
    - Copy the **Client ID** → `DISCORD_CLIENT_ID`
    - Click **Reset Secret**, copy it → `DISCORD_CLIENT_SECRET`
-   - Under **Redirects**, add `https://app.buffsquad.net/auth/discord/callback` and **Save**.
+   - Under **Redirects**, add `https://aco.buffsquad.net/auth/discord/callback` and **Save**.
 3. **Bot** page:
    - Click **Reset Token**, copy it → `DISCORD_BOT_TOKEN` (shown once; never share it)
    - Turn **on** **Message Content Intent**, **Save**.
@@ -49,7 +49,7 @@ Then right-click things to **Copy ID**. Keep the values below in a note; part 4 
 3. Choose **Windows**. Cloudflare shows a command ending in a long token
    (`cloudflared.exe service install eyJ...`). Copy just the token: the long `eyJ...` part.
 4. **Next** → **Public hostname**:
-   - Subdomain: `app` · Domain: `buffsquad.net`
+   - Subdomain: `aco` · Domain: `buffsquad.net`
    - Service type: `HTTP` · URL: `localhost:8000`
    - **Save tunnel**.
 
@@ -86,8 +86,8 @@ Cloudflare's menu names change now and then; you're looking for creating a tunne
 
 ## Part 5: Check it works (about 10 minutes)
 
-1. Open `https://app.buffsquad.net/dashboard` and sign in with Discord.
-2. Open `https://app.buffsquad.net/admin`. Overview should say **Bot online**.
+1. Open `https://aco.buffsquad.net/dashboard` and sign in with Discord.
+2. Open `https://aco.buffsquad.net/admin`. Overview should say **Bot online**.
 3. **Channels** tab: add your checkout channel if you didn't put it in the settings file.
 4. **Settings** tab: set your fees.
 5. Post a test checkout from one of your bots and watch it appear under **Checkouts**.
@@ -110,7 +110,7 @@ Remote Desktop open to the whole internet is the most common way Windows servers
 | See what happened with deploys | `C:\buffsquad\logs\deploy.log` |
 | App and bot log | `C:\buffsquad\logs\app.log` |
 | Why a deploy was skipped | `C:\buffsquad\logs\last-tests.log` |
-| Is it up, which version | `https://app.buffsquad.net/api/health` |
+| Is it up, which version | `https://aco.buffsquad.net/api/health` |
 | Backups | `C:\buffsquad\data\backups` (nightly at 4:00 AM, newest 14 kept) |
 
 A version whose tests fail, or that doesn't start, is skipped and the site stays on the

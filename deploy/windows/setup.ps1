@@ -21,7 +21,7 @@
   Cloudflare tunnel, so no ports need to be opened in the firewall.
 #>
 param(
-  [string]$Domain = "app.buffsquad.net",
+  [string]$Domain = "aco.buffsquad.net",
   [string]$TunnelToken = "",
   [string]$Repo = "https://github.com/sub7m19/BUFFSQUAD_ACO.git"
 )
