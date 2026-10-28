@@ -220,6 +220,26 @@ class ServerTest(ServerCase):
         _, logins, _ = owner.request("GET", "/api/admin/audit?kind=logins")
         self.assertEqual({a["action"] for a in logins["rows"]}, {"login"})
 
+    def test_jigged_profile_names_match_their_member(self):
+        zed = self.client().login("zed")
+        jigged = {**SETTINGS, "profiles": [{**PROFILE, "id": "z1", "label": "Zaky1-@457-&57d"},
+                                           {**PROFILE, "id": "z2", "label": "Shared4-@1a-!2b"}]}
+        with db.transaction() as conn:
+            early = db.record_checkout(conn, {"status": "success", "profile": "Zaky1-!1de-%01ab"}, message_key="jig0:0")
+            self.assertIsNone(conn.execute("SELECT user_id FROM checkouts WHERE id = ?", (early,)).fetchone()["user_id"])
+        self.assertEqual(zed.request("PUT", "/api/me/settings", jigged)[0], 200)
+        yan = self.client().login("yan")
+        self.assertEqual(yan.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "id": "y1", "label": "Shared4-#9c"}]})[0], 200)
+        with db.transaction() as conn:
+            zed_id = conn.execute("SELECT id FROM users WHERE username = 'zed'").fetchone()["id"]
+            owner = lambda cid: conn.execute("SELECT user_id FROM checkouts WHERE id = ?", (cid,)).fetchone()["user_id"]
+            # Saving the profiles claimed the checkout that came in first, without a DM.
+            self.assertEqual(owner(early), zed_id)
+            self.assertEqual(owner(db.record_checkout(conn, {"status": "success", "profile": "Zaky1"}, message_key="jig1:0")), zed_id)
+            # Two members both have a "Shared4": no guessing.
+            self.assertIsNone(owner(db.record_checkout(conn, {"status": "success", "profile": "Shared4-%77"}, message_key="jig2:0")))
+            conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'jig%'")
+
     def test_admins_cant_open_other_admins(self):
         card = {"kind": "card", "ref": "p1", "value": {"number": "5555555555554444", "cvv": "321", "exp": "02/30", "name": "X"}}
         people = {}

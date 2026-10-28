@@ -139,6 +139,7 @@ def init() -> None:
             qty, product = checkout_parser.split_qty(row["product"])
             if qty:
                 conn.execute("UPDATE checkouts SET qty = ?, product = ? WHERE id = ?", (int(qty), product, row["id"]))
+        rematch_checkouts(conn)
         # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
         # Dev sign-ins (dev-*) pick their own flag and are left alone.
         for row in conn.execute("SELECT id, discord_id, is_admin FROM users WHERE discord_id NOT LIKE 'dev-%'").fetchall():
@@ -367,6 +368,8 @@ def save_settings(conn, user: sqlite3.Row, settings: dict) -> None:
             conn.execute("DELETE FROM secrets WHERE user_id = ? AND kind = ? AND ref = ?", (user["id"], row["kind"], row["ref"]))
     if not (settings.get("inbox") or {}).get("method"):
         conn.execute("DELETE FROM secrets WHERE user_id = ? AND kind = 'inbox'", (user["id"],))
+    # Checkouts that came in before these profiles were added.
+    rematch_checkouts(conn)
 
 
 def set_secret(conn, user_id: int, kind: str, ref: str, value) -> None:
@@ -400,10 +403,16 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (text or "").lower())
 
 
+def _base(text: str) -> str:
+    """A profile name without the jig code bots add to the end:
+    'Zaky1-@457-&57d' and 'Zaky1-!1de-%01ab' are both 'zaky1'."""
+    return _norm(re.split(r"-[!@#$%^&*~]", text or "", maxsplit=1)[0])
+
+
 def match_profile(conn, profile_name: str):
     """Find the member a checkout's profile name belongs to. Returns the profiles
-    row or None. Tries the bot name first, then a profile label, but only when
-    exactly one active member uses that label."""
+    row or None. Tries the bot name first, then a profile label, then the label
+    without its jig code, the last two only when exactly one active member has it."""
     key = _norm(profile_name)
     if not key:
         return None
@@ -413,7 +422,23 @@ def match_profile(conn, profile_name: str):
         if _norm(r["bot_name"]) == key:
             return r
     by_label = [r for r in rows if _norm(r["label"]) == key]
-    return by_label[0] if len(by_label) == 1 else None
+    if len(by_label) == 1:
+        return by_label[0]
+    base = _base(profile_name)
+    by_base = [r for r in rows if base and _base(r["label"]) == base]
+    return by_base[0] if len({r["user_id"] for r in by_base}) == 1 else None
+
+
+def rematch_checkouts(conn) -> int:
+    """Gives unmatched checkouts to their member where the profile name now matches,
+    without DMing them (the feed post went out long ago). Returns how many."""
+    count = 0
+    for row in conn.execute("SELECT id, profile_name FROM checkouts WHERE user_id IS NULL AND profile_name != ''").fetchall():
+        match = match_profile(conn, row["profile_name"])
+        if match:
+            conn.execute("UPDATE checkouts SET user_id = ? WHERE id = ?", (match["user_id"], row["id"]))
+            count += 1
+    return count
 
 
 def wants_checkout_dm(conn, user_id) -> bool:
