@@ -188,6 +188,7 @@ byId("select-mode").addEventListener("click", () => {
 });
 
 byId("select-all").addEventListener("change", (e) => {
+  selection.on = true;
   selection.ids = new Set(e.target.checked ? data.checkouts.map((c) => c.id) : []);
   byId("checkout-list").innerHTML = data.checkouts.map((c) => checkoutRow(c, true)).join("");
   updateBulkBar();
