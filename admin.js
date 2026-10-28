@@ -446,7 +446,8 @@ async function openMemberModal(id) {
     <span>Joined ${escape(new Date(m.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}</span>
     <span>Last seen ${m.lastLogin ? ago(m.lastLogin) : "never"}</span>`;
   byId("member-toggle").innerHTML = m.disabled ? `${icon("check")}Turn account back on` : `${icon("x")}Turn account off`;
-  byId("member-toggle").hidden = m.isAdmin;
+  // The server says who can be turned off: never yourself, and other admins only by the owner.
+  byId("member-toggle").hidden = !m.canDisable;
 
   const section = (title, count, body, tools = "") => `
     <section class="m-section">
@@ -542,11 +543,13 @@ async function openMemberModal(id) {
       </article>
     </div>`;
 
+  // Another admin (unless you're the owner): who they are and their checkouts, nothing private.
+  const locked = m.locked ? empty("lock", escape(m.locked)) : "";
   byId("member-body").innerHTML = [
     stats,
-    section("Profiles", profiles.length, profileHtml, downloads),
-    section("Retailer accounts", Object.values(accounts).reduce((n, list) => n + (list ? list.length : 0), 0), accountHtml),
-    section("Inbox & notifications", null, connections),
+    section("Profiles", m.locked ? m.profiles : profiles.length, locked || profileHtml, locked ? "" : downloads),
+    section("Retailer accounts", m.locked ? m.accounts : Object.values(accounts).reduce((n, list) => n + (list ? list.length : 0), 0), locked || accountHtml),
+    m.locked ? "" : section("Inbox & notifications", null, connections),
     section("Checkouts", m.checkouts.length, m.checkouts.length
       ? `<ul class="checkout-list">${m.checkouts.map((c) => checkoutRow(c)).join("")}</ul>`
       : empty("bag", "No checkouts yet.")),
@@ -955,6 +958,8 @@ const ACTIONS = {
   "channel.add": "Added a checkout channel", "channel.remove": "Removed a checkout channel",
   "feed.set": "Set the success feed channel", "feed.clear": "Turned off the success feed",
   "checkout.bulk_delete": "Deleted checkouts",
+  "blocked.export": "Blocked: downloading an admin's profiles", "blocked.reveal": "Blocked: revealing an admin's details",
+  "blocked.disable": "Blocked: turning an admin on or off",
 };
 
 const ROLES = { owner: "Owner", admin: "Admin" };
@@ -1092,6 +1097,8 @@ setInterval(() => {
     // The Master log is the owner's alone.
     if (me.user.isOwner) byId("nav-activity").hidden = false;
     else ROUTES.splice(ROUTES.indexOf("activity"), 1);
+    // Other admins' profiles and accounts aren't in their downloads.
+    document.querySelectorAll("[data-admins-left-out]").forEach((el) => (el.hidden = me.user.isOwner));
   } catch {
     // Signed out: api() already redirected.
   }

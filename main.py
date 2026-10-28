@@ -152,6 +152,15 @@ def is_owner(user) -> bool:
     return user["discord_id"] in config.OWNER_DISCORD_IDS
 
 
+def can_open(admin, member) -> bool:
+    """Whether an admin may see, reveal and download a member's profiles, cards,
+    accounts and inbox. Another admin's are off limits, except to the owner."""
+    return is_owner(admin) or not member["is_admin"] or member["id"] == admin["id"]
+
+
+LOCKED = "Only Admin Profile owner can see their own profiles."
+
+
 NEW_TAB = ' target="_blank" rel="noreferrer"'
 
 
@@ -696,13 +705,22 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         if not r:
             raise AppError(404, "No such member.")
         if method == "GET":
+            # Turning accounts off: never your own, and another admin's only by the owner.
+            can_disable = r["id"] != admin["id"] and (not r["is_admin"] or is_owner(admin))
+            if not can_open(admin, r):
+                # Just who they are and their checkouts: no addresses, cards, accounts or inbox.
+                checkouts = conn.execute(CHECKOUT_SELECT + " WHERE checkouts.user_id = ? ORDER BY checkouts.created_at DESC", (r["id"],)).fetchall()
+                return h.send_json(200, {
+                    **member_row(conn, r), "locked": LOCKED, "canDisable": can_disable, "settings": {},
+                    "saved": {"cards": [], "accounts": [], "inbox": False}, "checkouts": [db.checkout_json(c) for c in checkouts],
+                })
             settings = db.user_settings(r) or {}
             names = {p["ref"]: p["bot_name"] for p in conn.execute("SELECT ref, bot_name FROM profiles WHERE user_id = ?", (r["id"],))}
             for p in settings.get("profiles", []):
                 p["botName"] = names.get(str(p.get("id")), "")
             checkouts = conn.execute(CHECKOUT_SELECT + " WHERE checkouts.user_id = ? ORDER BY checkouts.created_at DESC", (r["id"],)).fetchall()
             return h.send_json(200, {
-                **member_row(conn, r), "settings": settings, "saved": db.saved_secrets(conn, r["id"]),
+                **member_row(conn, r), "canDisable": can_disable, "settings": settings, "saved": db.saved_secrets(conn, r["id"]),
                 "checkouts": [db.checkout_json(c) for c in checkouts],
             })
         if method == "PATCH":
@@ -710,6 +728,9 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             if "disabled" in body:
                 if r["id"] == admin["id"]:
                     raise AppError(400, "You can't turn off your own account.")
+                if r["is_admin"] and not is_owner(admin):
+                    db.audit(conn, admin["id"], "blocked.disable", f"tried to turn {'off' if body['disabled'] else 'on'} admin {r['username']}")
+                    return h.send_json(403, {"ok": False, "message": "Only the owner can turn an admin's account off or on."})
                 conn.execute("UPDATE users SET disabled = ? WHERE id = ?", (int(bool(body["disabled"])), r["id"]))
                 if body["disabled"]:
                     conn.execute("DELETE FROM sessions WHERE user_id = ?", (r["id"],))
@@ -721,6 +742,10 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         user_id, kind, ref = _int(body.get("userId")), body.get("kind"), str(body.get("ref") or "")
         if kind not in ("card", "account", "inbox"):
             raise AppError(400, "Bad request.")
+        member = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if member and not can_open(admin, member):
+            db.audit(conn, admin["id"], "blocked.reveal", f"tried to reveal {secret_label(conn, user_id, kind, ref)}")
+            return h.send_json(403, {"ok": False, "message": LOCKED})
         value = db.get_secret(conn, user_id, kind, "inbox" if kind == "inbox" else ref)
         if value is None:
             raise AppError(404, "Nothing saved for that.")
@@ -822,6 +847,12 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             users = conn.execute("SELECT * FROM users WHERE disabled = 0 AND settings IS NOT NULL").fetchall()
         else:
             users = conn.execute("SELECT * FROM users WHERE id = ? AND settings IS NOT NULL", (user_id,)).fetchall()
+            if users and not can_open(admin, users[0]):
+                db.audit(conn, admin["id"], "blocked.export", f"tried to download admin {users[0]['username']}'s profiles")
+                return h.send_json(403, {"ok": False, "message": LOCKED})
+        # Downloading everyone's leaves out other admins (the owner gets them all).
+        skipped = [u["username"] for u in users if not can_open(admin, u)]
+        users = [u for u in users if can_open(admin, u)]
         out, taken = [], {}
         for u in users:
             settings = json.loads(u["settings"])
@@ -836,7 +867,8 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         who = f"{users[0]['username']}'s " if user_id is not None and users else ""
         db.audit(conn, admin["id"], "export.profiles",
                  f"{len(out)} {who}profiles, {retailer or 'all sites'}, cards {'on' if with_cards else 'off'}"
-                 + (". " + "; ".join(f"{name}: {', '.join(bots)}" for name, bots in taken.items()) if taken else ""))
+                 + (". " + "; ".join(f"{name}: {', '.join(bots)}" for name, bots in taken.items()) if taken else "")
+                 + (f". Left out admins: {', '.join(skipped)}" if skipped else ""))
         stamp = time.strftime("%Y-%m-%d")
         parts = ["buffsquad", re.sub(r"[^a-z0-9]+", "-", users[0]["username"].lower()) if who else "",
                  retailer.lower().replace(" ", "-") if retailer else "", "profiles", stamp]
@@ -846,15 +878,19 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         retailer = q("retailer")
         if retailer not in config.RETAILERS:
             raise AppError(400, "Pick a retailer.")
-        lines, taken = [], {}
+        lines, taken, skipped = [], {}, []
         for u in conn.execute("SELECT * FROM users WHERE disabled = 0 AND settings IS NOT NULL").fetchall():
+            if not can_open(admin, u):
+                skipped.append(u["username"])
+                continue
             for a in json.loads(u["settings"]).get("accounts", {}).get(retailer, []):
                 password = db.get_secret(conn, u["id"], "account", str(a.get("id")))
                 if password:
                     lines.append(f"{a.get('email')}:{password}")
                     taken.setdefault(u["username"], []).append(str(a.get("email")))
         db.audit(conn, admin["id"], "export.accounts", f"{len(lines)} {retailer} accounts"
-                 + (". " + "; ".join(f"{name}: {', '.join(emails)}" for name, emails in taken.items()) if taken else ""))
+                 + (". " + "; ".join(f"{name}: {', '.join(emails)}" for name, emails in taken.items()) if taken else "")
+                 + (f". Left out admins: {', '.join(skipped)}" if skipped else ""))
         slug = retailer.lower().replace(" ", "-")
         return h.send_file(f"buffsquad-{slug}-accounts.txt", "\r\n".join(lines) + "\r\n", "text/plain")
 

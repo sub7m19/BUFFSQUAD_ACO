@@ -220,6 +220,57 @@ class ServerTest(ServerCase):
         _, logins, _ = owner.request("GET", "/api/admin/audit?kind=logins")
         self.assertEqual({a["action"] for a in logins["rows"]}, {"login"})
 
+    def test_admins_cant_open_other_admins(self):
+        card = {"kind": "card", "ref": "p1", "value": {"number": "5555555555554444", "cvv": "321", "exp": "02/30", "name": "X"}}
+        people = {}
+        for name, admin in (("adma", True), ("admb", True), ("regmem", False)):
+            c = self.client().login(name, admin=admin)
+            email = f"{name}@x.com"
+            c.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "label": "Vault", "email": email}],
+                                                   "accounts": {"Target": [{"id": "a1", "email": email}], "Pokemon Center": []}})
+            c.request("POST", "/api/me/secret", card)
+            c.request("POST", "/api/me/secret", {"kind": "account", "ref": "a1", "value": "pw-" + name})
+            people[name] = c
+        a = people["adma"]
+        _, members, _ = a.request("GET", "/api/admin/members")
+        ids = {m["username"]: m["id"] for m in members}
+
+        # Another admin: no addresses, cards or accounts, no reveal, download or turning them off.
+        _, b, _ = a.request("GET", f"/api/admin/members/{ids['admb']}")
+        self.assertEqual((b["locked"], b["settings"], b["canDisable"], b["profiles"]),
+                         ("Only Admin Profile owner can see their own profiles.", {}, False, 1))
+        self.assertEqual(a.request("POST", "/api/admin/reveal", {"userId": ids["admb"], "kind": "card", "ref": "p1"})[0], 403)
+        self.assertEqual(a.request("POST", "/api/admin/reveal", {"userId": ids["admb"], "kind": "account", "ref": "a1"})[0], 403)
+        self.assertEqual(a.request("GET", f"/api/admin/export/profiles?userId={ids['admb']}&cards=1")[0], 403)
+        self.assertEqual(a.request("PATCH", f"/api/admin/members/{ids['admb']}", {"disabled": True})[0], 403)
+        self.assertEqual(people["admb"].request("GET", "/api/me")[0], 200)
+
+        # Everyone's downloads leave the other admin out, but keep members and their own.
+        _, everyone, _ = a.request("GET", "/api/admin/export/profiles?cards=1")
+        names = {p["name"] for p in everyone}
+        self.assertTrue({"adma-vault", "regmem-vault"} <= names)
+        self.assertNotIn("admb-vault", names)
+        _, accounts, _ = a.request("GET", "/api/admin/export/accounts?retailer=Target")
+        self.assertIn(b"regmem@x.com:pw-regmem", accounts)
+        self.assertNotIn(b"admb@x.com", accounts)
+
+        # Members and their own details are open as before.
+        _, m, _ = a.request("GET", f"/api/admin/members/{ids['regmem']}")
+        self.assertTrue(m["canDisable"] and "locked" not in m)
+        self.assertEqual(a.request("POST", "/api/admin/reveal", {"userId": ids["adma"], "kind": "card", "ref": "p1"})[0], 200)
+
+        # The owner sees every admin's, and the blocked tries are in the master log.
+        owner = self.owner()
+        _, b, _ = owner.request("GET", f"/api/admin/members/{ids['admb']}")
+        self.assertTrue(b["canDisable"] and "locked" not in b and b["settings"]["profiles"])
+        _, revealed, _ = owner.request("POST", "/api/admin/reveal", {"userId": ids["admb"], "kind": "card", "ref": "p1"})
+        self.assertEqual(revealed["value"]["number"], "5555555555554444")
+        _, everyone, _ = owner.request("GET", "/api/admin/export/profiles?cards=0")
+        self.assertIn("admb-vault", {p["name"] for p in everyone})
+        _, log, _ = owner.request("GET", f"/api/admin/audit?who={ids['adma']}")
+        self.assertTrue({"blocked.reveal", "blocked.export", "blocked.disable"} <= {r["action"] for r in log["rows"]})
+        self.assertTrue(any("Left out admins: admb" in r["detail"] for r in log["rows"] if r["action"] == "export.profiles"))
+
     def test_version_for_admins(self):
         _, version, _ = self.client().login("verboss", admin=True).request("GET", "/api/version")
         self.assertEqual(version, main.VERSION_INFO)

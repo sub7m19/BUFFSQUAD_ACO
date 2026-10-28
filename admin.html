@@ -254,12 +254,14 @@
               <span>Include full card numbers and CVV</span>
             </label>
             <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg><span>The file holds card numbers in plain text. Import it, then delete it. Every export is logged.</span></p>
+            <p class="field-hint" data-admins-left-out hidden>Other admins' profiles are left out. Only Admin Profile owner can see their own profiles.</p>
             <button class="button primary" type="button" id="export-profiles"><svg class="icon"><use href="#i-download"/></svg>Download profiles</button>
           </section>
 
           <section class="panel admin-form" aria-labelledby="export-accounts-title">
             <h2 class="label" id="export-accounts-title">Retailer accounts</h2>
             <p class="field-hint">One <code>email:password</code> per line, for every member account on that retailer that has a password saved.</p>
+            <p class="field-hint" data-admins-left-out hidden>Other admins' accounts are left out. Only Admin Profile owner can see their own profiles.</p>
             <div class="export-buttons" id="export-accounts"></div>
           </section>
         </div>
