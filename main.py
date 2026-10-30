@@ -911,8 +911,17 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         retailer = q("retailer")
         if retailer not in config.RETAILERS:
             raise AppError(400, "Pick a retailer.")
+        # With userId, just that member's accounts (from their details on the Members tab).
+        user_id = _int(q("userId"))
+        if user_id is None:
+            users = conn.execute("SELECT * FROM users WHERE disabled = 0 AND settings IS NOT NULL").fetchall()
+        else:
+            users = conn.execute("SELECT * FROM users WHERE id = ? AND settings IS NOT NULL", (user_id,)).fetchall()
+            if users and not can_open(admin, users[0]):
+                db.audit(conn, admin["id"], "blocked.export", f"tried to download admin {users[0]['username']}'s accounts")
+                return h.send_json(403, {"ok": False, "message": LOCKED})
         lines, taken, skipped = [], {}, []
-        for u in conn.execute("SELECT * FROM users WHERE disabled = 0 AND settings IS NOT NULL").fetchall():
+        for u in users:
             if not can_open(admin, u):
                 skipped.append(u["username"])
                 continue
@@ -921,11 +930,13 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
                 if password:
                     lines.append(f"{a.get('email')}:{password}")
                     taken.setdefault(u["username"], []).append(str(a.get("email")))
-        db.audit(conn, admin["id"], "export.accounts", f"{len(lines)} {retailer} accounts"
+        who = f"{users[0]['username']}'s " if user_id is not None and users else ""
+        db.audit(conn, admin["id"], "export.accounts", f"{len(lines)} {who}{retailer} accounts"
                  + (". " + "; ".join(f"{name}: {', '.join(emails)}" for name, emails in taken.items()) if taken else "")
                  + (f". Left out admins: {', '.join(skipped)}" if skipped else ""))
-        slug = retailer.lower().replace(" ", "-")
-        return h.send_file(f"buffsquad-{slug}-accounts.txt", "\r\n".join(lines) + "\r\n", "text/plain")
+        parts = ["buffsquad", re.sub(r"[^a-z0-9]+", "-", users[0]["username"].lower()) if who else "",
+                 retailer.lower().replace(" ", "-"), "accounts"]
+        return h.send_file("-".join(p for p in parts if p) + ".txt", "\r\n".join(lines) + "\r\n", "text/plain")
 
     if (method, path) == ("GET", "/api/admin/settings"):
         return h.send_json(200, {"fees": db.fees(conn), "feeTypes": db.fee_types(conn), "rules": db.fee_rules(conn),

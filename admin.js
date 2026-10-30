@@ -775,7 +775,16 @@ async function openMemberModal(id) {
     ${active.length ? `<p class="field-hint m-hint">Downloads are AYCD JSON named by bot name. Paused profiles are left out, and each download is logged.</p>` : ""}`
     : empty("user", "No profiles yet.");
 
-  // Retailer accounts
+  // Retailer accounts, with this member's email:password download per retailer in the section header
+  const exportable = (r) => (accounts[r] || []).filter((a) => saved.accounts.has(String(a.id))).length;
+  const accountDownloads = retailers.some(exportable) ? `
+    <div class="m-tools">
+      ${retailers.map((r) => {
+        const n = exportable(r);
+        return `<button class="button ghost small" type="button" data-member-accounts="${escape(r)}" ${n ? "" : "disabled"}
+          title="Download ${escape(r)} accounts as email:password .txt">${icon("download")}${escape(r)} <b class="count">${n}</b></button>`;
+      }).join("")}
+    </div>` : "";
   const accountHtml = `<div class="m-grid">${retailers.map((retailer) => {
     const list = accounts[retailer] || [];
     return `
@@ -790,7 +799,8 @@ async function openMemberModal(id) {
             ${saved.accounts.has(String(a.id)) ? revealButton("account", a.id, "Password") : `<small>No password saved</small>`}</li>`).join("")}</ul>`
           : `<p class="field-hint">No ${escape(retailer)} accounts yet.</p>`}
       </article>`;
-  }).join("")}</div>`;
+  }).join("")}</div>
+  ${accountDownloads ? `<p class="field-hint m-hint">Downloads are email:password .txt. Accounts without a saved password are left out, and each download is logged.</p>` : ""}`;
 
   // Inbox and notifications, side by side
   const inbox = s.inbox || {};
@@ -825,7 +835,7 @@ async function openMemberModal(id) {
   byId("member-body").innerHTML = [
     stats,
     section("Profiles", m.locked ? m.profiles : profiles.length, locked || profileHtml, locked ? "" : downloads),
-    section("Retailer accounts", m.locked ? m.accounts : Object.values(accounts).reduce((n, list) => n + (list ? list.length : 0), 0), locked || accountHtml),
+    section("Retailer accounts", m.locked ? m.accounts : Object.values(accounts).reduce((n, list) => n + (list ? list.length : 0), 0), locked || accountHtml, locked ? "" : accountDownloads),
     m.locked ? "" : section("Inbox & notifications", null, connections),
     section("Checkouts", m.checkouts.length, m.checkouts.length
       ? `<ul class="checkout-list">${m.checkouts.map((c) => checkoutRow(c)).join("")}</ul>`
@@ -851,6 +861,14 @@ byId("member-body").addEventListener("click", (e) => {
   });
   location.href = `/api/admin/export/profiles?${params}`;
   notify(`Downloading ${openMember.name}'s ${btn.dataset.memberExport || "profiles"}${btn.dataset.memberExport ? " profiles" : ""}`);
+});
+
+byId("member-body").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-member-accounts]");
+  if (!btn || !openMember) return;
+  const params = new URLSearchParams({ userId: openMember.id, retailer: btn.dataset.memberAccounts });
+  location.href = `/api/admin/export/accounts?${params}`;
+  notify(`Downloading ${openMember.name}'s ${btn.dataset.memberAccounts} accounts`);
 });
 
 byId("member-body").addEventListener("click", async (e) => {
