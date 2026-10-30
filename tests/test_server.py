@@ -241,6 +241,32 @@ class ServerTest(ServerCase):
             self.assertIsNone(owner(db.record_checkout(conn, {"status": "success", "profile": "Shared4-%77"}, message_key="jig2:0")))
             conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'jig%'")
 
+    def test_jigged_bot_names_match_their_member(self):
+        sal = self.client().login("sal")
+        profiles = [{**PROFILE, "id": "s1", "label": "home9"}, {**PROFILE, "id": "s2", "label": "CL home amex #15"}]
+        self.assertEqual(sal.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": profiles})[0], 200)
+        with db.transaction() as conn:
+            sal_id = conn.execute("SELECT id FROM users WHERE username = 'sal'").fetchone()["id"]
+            for name in ("sal-home9", "sal-home9-558", "sal-home9-57d", "sal-home9-@457-&57d", "sal-home9-!xyz", "sal-cl-home-amex-15"):
+                match = db.match_profile(conn, name)
+                self.assertEqual((name, match and match["user_id"]), (name, sal_id))
+            # A code comes off only when what's left is a real bot name.
+            self.assertIsNone(db.match_profile(conn, "sal-other-558"))
+            self.assertIsNone(db.match_profile(conn, "nobody-home9-558"))
+
+    def test_old_two_line_profile_names_are_fixed_and_matched(self):
+        tia = self.client().login("tia")
+        self.assertEqual(tia.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "id": "t1", "label": "home6"}]})[0], 200)
+        with db.transaction() as conn:
+            tia_id = conn.execute("SELECT id FROM users WHERE username = 'tia'").fetchone()["id"]
+            old = db.record_checkout(conn, {"status": "success", "profile": "tia-home6-57d\nsomeone@example.com"}, message_key="two0:0")
+            self.assertIsNone(conn.execute("SELECT user_id FROM checkouts WHERE id = ?", (old,)).fetchone()["user_id"])
+        db.init()
+        with db.transaction() as conn:
+            row = conn.execute("SELECT user_id, profile_name FROM checkouts WHERE id = ?", (old,)).fetchone()
+            self.assertEqual((row["user_id"], row["profile_name"]), (tia_id, "tia-home6-57d"))
+            conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'two%'")
+
     def test_fee_invoices(self):
         ivy = self.client().login("ivy")
         ivy.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "id": "i1", "label": "Invoice1"}]})

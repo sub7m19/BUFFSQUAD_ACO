@@ -188,7 +188,8 @@ def parse_embed(embed: dict, content: str = "", sender: str = ""):
 
     return {
         "status": status,
-        "profile": found.get("profile", ""),
+        # Sniped puts the account's email on a second line under the profile name.
+        "profile": found.get("profile", "").partition("\n")[0].strip(),
         "product": product or "",
         # Refract has no Site field; its title ends with the store: "Successful Checkout | Target".
         "retailer": retailer_name(found["site"]) if found.get("site") else known_retailer(title.rpartition("|")[2] if "|" in title else ""),

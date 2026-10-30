@@ -157,6 +157,9 @@ def init() -> None:
             qty, product = checkout_parser.split_qty(row["product"])
             if qty:
                 conn.execute("UPDATE checkouts SET qty = ?, product = ? WHERE id = ?", (int(qty), product, row["id"]))
+        # ...and before it left the email off Sniped's two-line profile names.
+        for row in conn.execute("SELECT id, profile_name FROM checkouts WHERE profile_name LIKE '%' || char(10) || '%'").fetchall():
+            conn.execute("UPDATE checkouts SET profile_name = ? WHERE id = ?", (row["profile_name"].partition("\n")[0].strip(), row["id"]))
         rematch_checkouts(conn)
         if not kv_get(conn, "fixed_prices_v2"):
             fix_old_prices(conn)
@@ -430,10 +433,25 @@ def _base(text: str) -> str:
     return _norm(re.split(r"-[!@#$%^&*~]", text or "", maxsplit=1)[0])
 
 
+JIG_TAIL = re.compile(r"-[!@#$%^&*~]?[0-9a-f]{2,6}$", re.I)
+
+
+def _without_jig(text: str):
+    """A bot name with the jig code bots add to the end taken off, one piece at a
+    time: 'jake-main-558' and 'jake-main-@457-&57d' both reach 'jakemain'. Some codes
+    are plain hex, so a piece may be part of the name; only a real bot name counts."""
+    text = text or ""
+    while JIG_TAIL.search(text):
+        text = JIG_TAIL.sub("", text)
+        yield _norm(text)
+    yield _base(text)
+
+
 def match_profile(conn, profile_name: str):
     """Find the member a checkout's profile name belongs to. Returns the profiles
-    row or None. Tries the bot name first, then a profile label, then the label
-    without its jig code, the last two only when exactly one active member has it."""
+    row or None. Tries the bot name first, then a profile label, then the bot name
+    without its jig code, then the label without its jig code. Labels count only
+    when exactly one active member has them; bot names are unique."""
     key = _norm(profile_name)
     if not key:
         return None
@@ -445,6 +463,10 @@ def match_profile(conn, profile_name: str):
     by_label = [r for r in rows if _norm(r["label"]) == key]
     if len(by_label) == 1:
         return by_label[0]
+    for short in _without_jig(profile_name):
+        for r in rows:
+            if short and _norm(r["bot_name"]) == short:
+                return r
     base = _base(profile_name)
     by_base = [r for r in rows if base and _base(r["label"]) == base]
     return by_base[0] if len({r["user_id"] for r in by_base}) == 1 else None
