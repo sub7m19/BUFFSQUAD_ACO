@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS checkouts (
   id INTEGER PRIMARY KEY,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   profile_name TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',            -- the account email the bot reported, for matching; admins only
   product TEXT NOT NULL DEFAULT '',
   retailer TEXT NOT NULL DEFAULT '',
   order_no TEXT NOT NULL DEFAULT '',
@@ -140,7 +141,8 @@ def init() -> None:
         have = {r["name"] for r in conn.execute("PRAGMA table_info(checkouts)")}
         for column, decl in (("sku", "TEXT NOT NULL DEFAULT ''"), ("fee_source", "TEXT NOT NULL DEFAULT ''"),
                              ("feed_status", "TEXT NOT NULL DEFAULT 'none'"),
-                             ("invoice_id", "INTEGER REFERENCES invoices(id) ON DELETE SET NULL")):
+                             ("invoice_id", "INTEGER REFERENCES invoices(id) ON DELETE SET NULL"),
+                             ("email", "TEXT NOT NULL DEFAULT ''")):
             if column not in have:
                 conn.execute(f"ALTER TABLE checkouts ADD COLUMN {column} {decl}")
         # After the columns above, so an old database has feed_status before it's indexed.
@@ -472,14 +474,36 @@ def match_profile(conn, profile_name: str):
     return by_base[0] if len({r["user_id"] for r in by_base}) == 1 else None
 
 
+def match_email(conn, email: str):
+    """The id of the one active member with this email on a retailer account or a
+    profile, or None. Nobody when two members have it, or the bot masked it (j***@x.com)."""
+    email = (email or "").strip().lower()
+    if "@" not in email or "*" in email:
+        return None
+    owners = set()
+    for u in conn.execute("SELECT id, settings FROM users WHERE disabled = 0 AND settings IS NOT NULL").fetchall():
+        settings = json.loads(u["settings"])
+        accounts = [a for accts in (settings.get("accounts") or {}).values() if isinstance(accts, list) for a in accts]
+        if any(isinstance(x, dict) and str(x.get("email") or "").strip().lower() == email
+               for x in accounts + (settings.get("profiles") or [])):
+            owners.add(u["id"])
+    return owners.pop() if len(owners) == 1 else None
+
+
+def find_member(conn, profile_name: str, email: str):
+    """The member a checkout belongs to: by its profile name, or else its email."""
+    match = match_profile(conn, profile_name)
+    return match["user_id"] if match else match_email(conn, email)
+
+
 def rematch_checkouts(conn) -> int:
-    """Gives unmatched checkouts to their member where the profile name now matches,
-    without DMing them (the feed post went out long ago). Returns how many."""
+    """Gives unmatched checkouts to their member where the profile name or email now
+    matches, without DMing them (the feed post went out long ago). Returns how many."""
     count = 0
-    for row in conn.execute("SELECT id, profile_name FROM checkouts WHERE user_id IS NULL AND profile_name != ''").fetchall():
-        match = match_profile(conn, row["profile_name"])
-        if match:
-            conn.execute("UPDATE checkouts SET user_id = ? WHERE id = ?", (match["user_id"], row["id"]))
+    for row in conn.execute("SELECT id, profile_name, email FROM checkouts WHERE user_id IS NULL AND (profile_name != '' OR email != '')").fetchall():
+        user_id = find_member(conn, row["profile_name"], row["email"])
+        if user_id:
+            conn.execute("UPDATE checkouts SET user_id = ? WHERE id = ?", (user_id, row["id"]))
             count += 1
     return count
 
@@ -554,15 +578,14 @@ def fix_old_prices(conn) -> None:
 def record_checkout(conn, parsed: dict, message_key: str | None = None, channel_id: str | None = None,
                     user_id=None, source: str = "", notify: bool = True):
     """Save a checkout (or a miss) from the bot or an admin. Matches the profile name
-    to a member unless user_id is given, sets the fee from the fee rules (or the
+    or email to a member unless user_id is given, sets the fee from the fee rules (or the
     retailer default) unless one is given, and queues the
     member's DM. Returns the new checkout id, or None if this message was seen before."""
     if message_key and conn.execute("SELECT 1 FROM checkouts WHERE message_key = ?", (message_key,)).fetchone():
         return None
-    profile_name = parsed.get("profile") or ""
-    if user_id is None and profile_name:
-        match = match_profile(conn, profile_name)
-        user_id = match["user_id"] if match else None
+    profile_name, email = parsed.get("profile") or "", parsed.get("email") or ""
+    if user_id is None:
+        user_id = find_member(conn, profile_name, email)
     retailer = parsed.get("retailer") or ""
     hit = parsed.get("status", "success") == "success"
     product, sku = parsed.get("product") or "", parsed.get("sku") or ""
@@ -584,10 +607,10 @@ def record_checkout(conn, parsed: dict, message_key: str | None = None, channel_
     if hit and user_id and notify:
         dm = "pending" if wants_checkout_dm(conn, user_id) else "off"
     cur = conn.execute(
-        """INSERT INTO checkouts (user_id, profile_name, product, retailer, order_no, size, sku, qty, price, fee,
+        """INSERT INTO checkouts (user_id, profile_name, email, product, retailer, order_no, size, sku, qty, price, fee,
              fee_source, result, source, message_key, channel_id, created_at, dm_status, feed_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, profile_name, product, retailer, parsed.get("order") or "", parsed.get("size") or "", sku,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, profile_name, email, product, retailer, parsed.get("order") or "", parsed.get("size") or "", sku,
          qty, price, float(fee), fee_source, "hit" if hit else "miss", source or parsed.get("source") or "",
          message_key, channel_id, now(), dm, feed))
     if hit and price:
@@ -709,7 +732,7 @@ def checkout_json(row, member_view: bool = False) -> dict:
     if not member_view:
         keys = row.keys()
         data.update({
-            "userId": row["user_id"], "profileName": row["profile_name"], "size": row["size"], "result": row["result"],
+            "userId": row["user_id"], "profileName": row["profile_name"], "email": row["email"], "size": row["size"], "result": row["result"],
             "sku": row["sku"], "feeSource": row["fee_source"],
             "source": row["source"], "dmStatus": row["dm_status"], "dmError": row["dm_error"],
             "member": row["member"] if "member" in keys else None,

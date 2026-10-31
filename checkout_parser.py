@@ -185,11 +185,12 @@ def parse_embed(embed: dict, content: str = "", sender: str = ""):
     price = _price(found.get("price", ""))
     if price and source in PRICE_EACH:
         price = round(price * _qty(qty), 2)
+    # Sniped puts the account's email on a second line under the profile name.
+    profile, _, under_profile = found.get("profile", "").partition("\n")
 
     return {
         "status": status,
-        # Sniped puts the account's email on a second line under the profile name.
-        "profile": found.get("profile", "").partition("\n")[0].strip(),
+        "profile": profile.strip(),
         "product": product or "",
         # Refract has no Site field; its title ends with the store: "Successful Checkout | Target".
         "retailer": retailer_name(found["site"]) if found.get("site") else known_retailer(title.rpartition("|")[2] if "|" in title else ""),
@@ -198,7 +199,7 @@ def parse_embed(embed: dict, content: str = "", sender: str = ""):
         "order": found.get("order", "").lstrip("#").strip(),
         "size": found.get("size", ""),
         "sku": found.get("sku", ""),
-        "email": found.get("email", ""),
+        "email": found.get("email") or (under_profile.strip() if "@" in under_profile else ""),
         "source": source,
     }
 

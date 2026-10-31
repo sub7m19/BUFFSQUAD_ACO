@@ -254,6 +254,48 @@ class ServerTest(ServerCase):
             self.assertIsNone(db.match_profile(conn, "sal-other-558"))
             self.assertIsNone(db.match_profile(conn, "nobody-home9-558"))
 
+    def test_checkouts_match_by_email_when_the_name_does_not(self):
+        uma = self.client().login("uma")
+        vic = self.client().login("vic")
+        uma_settings = {**SETTINGS, "accounts": {"Target": [{"id": "a1", "email": "Uma.Login@example.com"}]},
+                        "profiles": [{**PROFILE, "id": "u1", "label": "Uma1", "email": "uma.ship@example.com"}]}
+        self.assertEqual(uma.request("PUT", "/api/me/settings", uma_settings)[0], 200)
+        self.assertEqual(vic.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [
+            {**PROFILE, "id": "v1", "label": "Vic1", "email": "both@example.com"}]})[0], 200)
+        self.assertEqual(uma.request("PUT", "/api/me/settings", {**uma_settings, "accounts": {
+            "Target": [{"id": "a1", "email": "Uma.Login@example.com"}, {"id": "a2", "email": "both@example.com"}]}})[0], 200)
+
+        def checkout(key, **parsed):
+            with db.transaction() as conn:
+                new_id = db.record_checkout(conn, {"status": "success", "profile": "gone-profile", **parsed}, message_key=f"mail{key}:0")
+                return conn.execute("SELECT * FROM checkouts WHERE id = ?", (new_id,)).fetchone()
+
+        with db.transaction() as conn:
+            ids = {r["username"]: r["id"] for r in conn.execute("SELECT id, username FROM users WHERE username IN ('uma', 'vic')")}
+        # An account email or a profile's, in any case.
+        self.assertEqual(checkout(0, email="uma.login@EXAMPLE.com")["user_id"], ids["uma"])
+        self.assertEqual(checkout(1, email="uma.ship@example.com", profile="")["user_id"], ids["uma"])
+        # No guessing: two members have it, it's masked, or nobody has it.
+        self.assertIsNone(checkout(2, email="both@example.com")["user_id"])
+        self.assertIsNone(checkout(3, email="u***.login@example.com")["user_id"])
+        self.assertIsNone(checkout(4, email="nobody@example.com")["user_id"])
+        # The profile name wins over the email.
+        self.assertEqual(checkout(5, profile="Vic1", email="uma.login@example.com")["user_id"], ids["vic"])
+
+        kept = checkout(6, email="later@example.com")
+        self.assertIsNone(kept["user_id"])
+        self.assertEqual(kept["email"], "later@example.com")
+        # Admins see it; the member's own view doesn't carry it.
+        self.assertEqual(db.checkout_json(kept)["email"], "later@example.com")
+        self.assertNotIn("email", db.checkout_json(kept, member_view=True))
+        # A member adding the account later claims the checkout, without a DM.
+        self.assertEqual(vic.request("PUT", "/api/me/settings", {**SETTINGS, "accounts": {"Target": [{"id": "a3", "email": "later@example.com"}]},
+                                                                  "profiles": [{**PROFILE, "id": "v1", "label": "Vic1"}]})[0], 200)
+        with db.transaction() as conn:
+            row = conn.execute("SELECT user_id, dm_status FROM checkouts WHERE id = ?", (kept["id"],)).fetchone()
+            self.assertEqual((row["user_id"], row["dm_status"]), (ids["vic"], "none"))
+            conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'mail%'")
+
     def test_old_two_line_profile_names_are_fixed_and_matched(self):
         tia = self.client().login("tia")
         self.assertEqual(tia.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "id": "t1", "label": "home6"}]})[0], 200)

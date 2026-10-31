@@ -78,7 +78,7 @@ const feeStatus = (c) => c.result === "miss"
 function checkoutRow(c, selectable = false) {
   const who = c.member
     ? escape(c.member)
-    : `<b class="unmatched">Unmatched</b>${c.profileName ? ` · profile “${escape(c.profileName)}”` : " · no profile in webhook"}`;
+    : `<b class="unmatched">Unmatched</b>${c.profileName ? ` · profile “${escape(c.profileName)}”` : " · no profile in webhook"}${c.email ? ` · ${escape(c.email)}` : ""}`;
   const dm = DM[c.dmStatus];
   return `
     <li class="admin-row ${selectable && selection.ids.has(c.id) ? "selected" : ""}" data-checkout="${c.id}" tabindex="0" role="button"

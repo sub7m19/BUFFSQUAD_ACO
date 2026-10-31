@@ -48,7 +48,7 @@ class ParseCheckouts(unittest.TestCase):
     def test_sniped_email_under_the_profile_is_left_out(self):
         [c] = parse_message({"embeds": [embed(title="Sniped Checkout!", fields=[
             ("Retailer", "Target"), ("Profile", "||jake-main-558||\n||someone@example.com||")])]})
-        self.assertEqual(c["profile"], "jake-main-558")
+        self.assertEqual((c["profile"], c["email"]), ("jake-main-558", "someone@example.com"))
 
     def test_fields(self):
         # Refract's $69.99 is for one item: the order total is 2 x $69.99.
