@@ -180,7 +180,7 @@ def invoice_embed(conn, inv, reminder: bool = False) -> discord.Embed:
         eq = f"`{math['math']}`" if math["terms"] and math["adds"] else f"**${fee:,.2f}** fee"
         if len(same) > 1:
             eq += f" × {len(same)} checkouts = **${fee * len(same):,.2f}**"
-        lines.append(f"**{product}**{f' ×{qty}' if qty > 1 else ''}\n↳ {eq}")
+        lines.append(f"**{product}**{f' · Quantity {qty}' if qty > 1 else ''}\n↳ {eq}")
     # What the fees were charged by, from the ACO fees settings, with each one's subtotal.
     bases = db.fee_bases(rows, explain, member=True)
     how = "\n".join(f"• {b['basis']} · {b['checkouts']} checkout{'s' if b['checkouts'] != 1 else ''} · ${b['total']:,.2f}" for b in bases)
@@ -295,7 +295,7 @@ def hit_summary_embed(job, hits) -> discord.Embed:
     total = sum(c["qty"] for c in hits)
     lines = []
     for c in hits:
-        qty = f" ×{c['qty']}" if c["qty"] > 1 else ""
+        qty = f" · Quantity {c['qty']}" if c["qty"] > 1 else ""
         where = " · ".join(x for x in (c["retailer"], c["size"]) if x)
         # Item and its profile/email as one entry, so a cut never splits them.
         lines.append(f"**{c['product'] or 'Item'}**{qty}" + (f" · {where}" if where else "")

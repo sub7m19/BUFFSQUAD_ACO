@@ -90,8 +90,8 @@ class InvoiceEmbedTest(unittest.TestCase):
         self.assertIn("You owe **$113.60** for 30 checkouts.", text)
         self.assertIn("• Target: 5% of price · 28 checkouts · $89.60", text)
         self.assertIn("• “Prismatic” rule at Target: $6.00 per item · 2 checkouts · $24.00", text)
-        self.assertIn(f"**{KNOCK_OUT}** ×2\n↳ `$63.98 × 5% = $3.20` × 28 checkouts = **$89.60**", text)
-        self.assertIn("**Prismatic ETB** ×2\n↳ `$6.00 × 2 items = $12.00` × 2 checkouts = **$24.00**", text)
+        self.assertIn(f"**{KNOCK_OUT}** · Quantity 2\n↳ `$63.98 × 5% = $3.20` × 28 checkouts = **$89.60**", text)
+        self.assertIn("**Prismatic ETB** · Quantity 2\n↳ `$6.00 × 2 items = $12.00` × 2 checkouts = **$24.00**", text)
         self.assertEqual(embed.fields[0].value, "$89.60 + $24.00 = **$113.60**")
         self.assertNotIn("more", text)
 
@@ -121,7 +121,7 @@ class HitSummaryEmbedTest(unittest.TestCase):
     def test_lists_profile_and_email_and_fits(self):
         job = {"title": "Friday drop", "from": 1, "to": 2}
         text = bot.hit_summary_embed(job, [checkout(KNOCK_OUT, qty=2)]).description
-        self.assertIn(f"**{KNOCK_OUT}** ×2 · Target\n↳ Profile `jake-main` · jake+1@gmail.com", text)
+        self.assertIn(f"**{KNOCK_OUT}** · Quantity 2 · Target\n↳ Profile `jake-main` · jake+1@gmail.com", text)
         text = bot.hit_summary_embed(job, [checkout(f"{KNOCK_OUT} {i}") for i in range(100)]).description
         self.assertLessEqual(len(text), bot.EMBED_DESCRIPTION)
         self.assertTrue(text.endswith("more on your dashboard"))
