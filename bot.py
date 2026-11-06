@@ -147,19 +147,41 @@ async def send_pending_feed() -> None:
             conn.execute("UPDATE checkouts SET feed_status = ? WHERE id = ?", (status, c["id"]))
 
 
+EMBED_DESCRIPTION = 4096  # Discord's limit on an embed's description
+
+
+def fit_lines(head: str, lines: list[str], more: str, limit: int = EMBED_DESCRIPTION) -> str:
+    """head, then as many whole lines as fit under Discord's limit. If some don't fit,
+    ends with `more` (formatted with how many were left off) instead of cutting a line in half."""
+    text = head
+    for i, line in enumerate(lines):
+        tail = "" if i == len(lines) - 1 else "\n" + more.format(n=len(lines) - i - 1)
+        if len(text) + 1 + len(line) + len(tail) > limit:
+            return text + "\n" + more.format(n=len(lines) - i)
+        text += "\n" + line
+    return text
+
+
 def invoice_embed(conn, inv, reminder: bool = False) -> discord.Embed:
     number = db.invoice_number(inv["id"])
     rows = db.invoice_checkouts(conn, inv["id"])
     amount = sum(r["fee"] for r in rows)
+    # The same item at the same fee reads as one line ("×14 checkouts · $67.20"), so a big
+    # drop's invoice fits in one message.
+    groups: dict[tuple, list] = {}
+    for r in rows:
+        groups.setdefault((r["product"] or "Item", r["qty"], r["fee"]), []).append(r)
+    lines = []
+    for (product, qty, fee), same in groups.items():
+        line = f"{product}{f' ×{qty}' if qty > 1 else ''} · ${fee:,.2f}"
+        if len(same) > 1:
+            line += f" each, ×{len(same)} checkouts · **${fee * len(same):,.2f}**"
+        lines.append(line)
     embed = discord.Embed(
         title=f"Reminder: ACO fee invoice {number} is still open" if reminder else f"ACO fee invoice {number}",
-        description=f"You owe **${amount:,.2f}** for {len(rows)} checkout{'s' if len(rows) != 1 else ''}.", color=0xFCA47C)
-    lines = []
-    for r in rows:
-        qty = f" ×{r['qty']}" if r["qty"] > 1 else ""
-        lines.append(f"{r['product'] or 'Item'}{qty} · ${r['fee']:,.2f}")
-    shown = "\n".join(lines[:15]) + (f"\n…and {len(lines) - 15} more" if len(lines) > 15 else "")
-    embed.add_field(name="Checkouts", value=shown[:1024] or "—", inline=False)
+        description=fit_lines(f"You owe **${amount:,.2f}** for {len(rows)} checkout{'s' if len(rows) != 1 else ''}.\n\n**Checkouts**",
+                              lines, "…and {n} more on your dashboard's Billing page"),
+        color=0xFCA47C)
     pay = db.pay_settings(conn)
     how = [f"**{name}:** {pay[k]}" for k, name in db.PAY_METHODS.items() if pay[k]]
     if how:
@@ -257,26 +279,21 @@ async def send_pending_recaps() -> None:
             set_recap(post["id"], status="failed", error=str(e)[:200])
 
 
-HIT_LINES = 20  # Checkouts listed in one summary DM; the rest are on the dashboard.
-
-
 def hit_summary_embed(job, hits) -> discord.Embed:
     """One member's hits from a drop: each item with the profile and email it hit on.
     Only ever sent to that member, so their own email is fine here."""
     total = sum(c["qty"] for c in hits)
     lines = []
-    for c in hits[:HIT_LINES]:
+    for c in hits:
         qty = f" ×{c['qty']}" if c["qty"] > 1 else ""
         where = " · ".join(x for x in (c["retailer"], c["size"]) if x)
-        lines.append(f"**{c['product'] or 'Item'}**{qty}" + (f" · {where}" if where else ""))
-        lines.append(f"↳ Profile `{c['profile_name'] or '—'}`" + (f" · {c['email']}" if c["email"] else ""))
-    if len(hits) > HIT_LINES:
-        lines.append(f"…and {len(hits) - HIT_LINES} more on your dashboard")
-    embed = discord.Embed(
-        title=f"📦 {job['title']}: your hits", color=0x23CED9,
-        description=(f"<t:{job['from']}:f> – <t:{job['to']}:t>\n"
-                     f"**{total} item{'s' if total != 1 else ''}** from {len(hits)} checkout{'s' if len(hits) != 1 else ''}\n\n"
-                     + "\n".join(lines))[:4096])
+        # Item and its profile/email as one entry, so a cut never splits them.
+        lines.append(f"**{c['product'] or 'Item'}**{qty}" + (f" · {where}" if where else "")
+                     + f"\n↳ Profile `{c['profile_name'] or '—'}`" + (f" · {c['email']}" if c["email"] else ""))
+    head = (f"<t:{job['from']}:f> – <t:{job['to']}:t>\n"
+            f"**{total} item{'s' if total != 1 else ''}** from {len(hits)} checkout{'s' if len(hits) != 1 else ''}\n")
+    embed = discord.Embed(title=f"📦 {job['title']}: your hits", color=0x23CED9,
+                          description=fit_lines(head, lines, "…and {n} more on your dashboard"))
     url = f"{config.PUBLIC_URL}/dashboard#checkouts"
     if url.startswith("https://"):
         embed.url = url
