@@ -635,6 +635,22 @@ def drop_recap(conn, start: int, end: int, top: int = 10) -> dict:
             "items": sum(r["items"] for r in rows), "members": len(members), "top": members[:top], "unmatched": unmatched}
 
 
+DROP_HITS = """checkouts.result = 'hit' AND checkouts.stage != 'canceled' AND checkouts.created_at >= ? AND checkouts.created_at < ?"""
+
+
+def drop_hit_members(conn, start: int, end: int) -> list[sqlite3.Row]:
+    """The members with a successful checkout between two times (seconds), for the hit summary DMs."""
+    return conn.execute(
+        f"""SELECT DISTINCT users.id, users.discord_id FROM checkouts JOIN users ON users.id = checkouts.user_id
+            WHERE {DROP_HITS} ORDER BY users.id""", (start, end)).fetchall()
+
+
+def member_hits(conn, user_id: int, start: int, end: int) -> list[sqlite3.Row]:
+    """One member's successful checkouts between two times: what their hit summary DM lists."""
+    return conn.execute(
+        f"SELECT * FROM checkouts WHERE user_id = ? AND {DROP_HITS} ORDER BY created_at, id", (user_id, start, end)).fetchall()
+
+
 # Invoices
 
 # Checkouts a member owes a fee on that aren't on an invoice yet.

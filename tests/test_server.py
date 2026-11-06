@@ -432,8 +432,21 @@ class ServerTest(ServerCase):
         with db.transaction() as conn:
             post = db.kv_get(conn, "recaps")[-1]
             self.assertEqual((post["title"], post["stats"]["items"]), ("Friday drop", 6))
+
+        # DM everyone their hits: one DM per member, listing only their successful checkouts.
+        status, job, _ = admin.request("POST", "/api/admin/recap/dms", {"from": start * 1000, "to": (start + 3600) * 1000, "title": "Friday drop"})
+        self.assertEqual((status, job["members"]), (200, 1))
+        _, st, _ = admin.request("GET", f"/api/admin/recap/dms/{job['id']}")
+        self.assertEqual((st["pending"], st["sent"], st["failed"]), (1, 0, 0))
+        self.assertEqual(self.client().login("rio").request("POST", "/api/admin/recap/dms", {"from": start * 1000})[0], 403)
+        self.assertEqual(admin.request("POST", "/api/admin/recap/dms", {"from": (start - 7200) * 1000, "to": (start - 3600) * 1000})[0], 400)
+        with db.transaction() as conn:
+            queued = db.kv_get(conn, "hit_dms")[-1]
+            hits = db.member_hits(conn, queued["members"][0]["userId"], queued["from"], queued["to"])
+            self.assertEqual(sorted(h["qty"] for h in hits), [2, 3])
+            self.assertTrue(all(h["profile_name"] == "Recap1" for h in hits))
             conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'recap%'")
-            conn.execute("DELETE FROM kv WHERE key = 'recaps'")
+            conn.execute("DELETE FROM kv WHERE key IN ('recaps', 'hit_dms')")
 
     def test_admins_cant_open_other_admins(self):
         card = {"kind": "card", "ref": "p1", "value": {"number": "5555555555554444", "cvv": "321", "exp": "02/30", "name": "X"}}

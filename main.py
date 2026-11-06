@@ -1147,6 +1147,32 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         db.audit(conn, admin["id"], "recap.post", f"{title}: {stats['checkouts']} checkouts, {stats['items']} items, to channel {channel_id}")
         return h.send_json(200, {"ok": True, "id": post["id"]})
 
+    if (method, path) == ("POST", "/api/admin/recap/dms"):
+        # "DM everyone their hits": each member with a checkout in the drop gets a DM listing
+        # their own items, with the profile and email each one hit on.
+        body = h.body()
+        start, end = recap_range(body.get("from"), body.get("to"))
+        members = db.drop_hit_members(conn, start, end)
+        if not members:
+            raise AppError(400, "No member has a successful checkout in that time.")
+        title = str(body.get("title") or "").strip()[:80] or "Drop recap"
+        # The bot sends them on its next ticks (bot.send_pending_hit_dms) and marks each sent or failed.
+        job = {"id": secrets.token_hex(4), "title": title, "from": start, "to": end,
+               "members": [{"userId": m["id"], "status": "pending", "error": ""} for m in members],
+               "by": admin["username"], "at": db.now() * 1000}
+        db.kv_set(conn, "hit_dms", (db.kv_get(conn, "hit_dms", []) + [job])[-20:])
+        db.audit(conn, admin["id"], "recap.dms", f"{title}: DMed {len(members)} member{'s' if len(members) != 1 else ''} their hits")
+        return h.send_json(200, {"ok": True, "id": job["id"], "members": len(members)})
+
+    m_dms = re.fullmatch(r"/api/admin/recap/dms/([0-9a-f]{8})", path)
+    if method == "GET" and m_dms:
+        job = next((j for j in db.kv_get(conn, "hit_dms", []) if j["id"] == m_dms.group(1)), None)
+        if not job:
+            raise AppError(404, "Those DMs aren't on the list.")
+        count = lambda s: sum(1 for m in job["members"] if m["status"] == s)
+        errors = sorted({m["error"] for m in job["members"] if m["status"] == "failed" and m["error"]})
+        return h.send_json(200, {"pending": count("pending"), "sent": count("sent"), "failed": count("failed"), "errors": errors})
+
     m_recap = re.fullmatch(r"/api/admin/recap/([0-9a-f]{8})", path)
     if method == "GET" and m_recap:
         post = next((p for p in db.kv_get(conn, "recaps", []) if p["id"] == m_recap.group(1)), None)

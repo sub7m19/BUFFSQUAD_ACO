@@ -1266,6 +1266,7 @@ function renderRecap() {
   const s = recap.stats;
   const preview = byId("recap-preview");
   byId("recap-post").disabled = byId("recap-copy").disabled = !s || !s.checkouts;
+  byId("recap-dms").disabled = !s || !s.members;
   if (!s) return;
   if (!s.checkouts) {
     preview.innerHTML = `<p class="mini-empty">No successful checkouts since ${escape(when(s.from))}.</p>`;
@@ -1340,6 +1341,50 @@ byId("recap-copy").addEventListener("click", async () => {
   }
 });
 
+// Each member with a hit in this time gets a DM listing their items, with the profile and email each one hit on.
+byId("recap-dms").addEventListener("click", async () => {
+  const btn = byId("recap-dms");
+  const error = byId("recap-error");
+  const s = recap.stats;
+  if (!s || !s.members) return;
+  // First click asks; a second within a few seconds sends.
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = "1";
+    btn.textContent = `Send to ${plural(s.members, "member")}?`;
+    setTimeout(() => {
+      if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = "DM everyone their hits"; }
+    }, 4000);
+    return;
+  }
+  delete btn.dataset.armed;
+  error.hidden = true;
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+  try {
+    const { id, members } = await api("POST", "/api/admin/recap/dms", { from: s.from, to: s.to, title: recapTitle() });
+    // The bot sends them over its next few ticks; wait to say how it went.
+    let st = { pending: members, sent: 0, failed: 0, errors: [] };
+    for (let i = 0; i < 30 && st.pending; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      st = await api("GET", `/api/admin/recap/dms/${id}`);
+      btn.textContent = `Sending… ${st.sent + st.failed}/${members}`;
+    }
+    if (st.pending && !st.sent && !st.failed) throw new Error("The bot hasn't sent them yet. Is it online? It will send them as soon as it is.");
+    if (st.failed) {
+      error.textContent = `DMed ${plural(st.sent, "member")}; ${st.failed} failed: ${st.errors.join("; ")}`;
+      error.hidden = false;
+      return;
+    }
+    notify(st.pending ? `DMed ${plural(st.sent, "member")} so far. The bot is still sending the rest.` : `DMed ${plural(st.sent, "member")} their hits`);
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "DM everyone their hits";
+  }
+});
+
 recapForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const post = byId("recap-post");
@@ -1379,7 +1424,7 @@ const ACTIONS = {
   "member.disable": "Turned off a member", "member.enable": "Turned on a member",
   "channel.add": "Added a checkout channel", "channel.remove": "Removed a checkout channel",
   "feed.set": "Set the success feed channel", "feed.clear": "Turned off the success feed",
-  "checkout.bulk_delete": "Deleted checkouts", "recap.post": "Posted a drop recap",
+  "checkout.bulk_delete": "Deleted checkouts", "recap.post": "Posted a drop recap", "recap.dms": "DMed members their hits",
   "invoice.send": "Sent an invoice", "invoice.paid": "Marked an invoice paid", "invoice.open": "Marked an invoice unpaid",
   "invoice.void": "Voided an invoice", "invoice.resend": "Resent an invoice", "settings.pay": "Changed how members pay",
   "blocked.export": "Blocked: downloading an admin's profiles", "blocked.reveal": "Blocked: revealing an admin's details",

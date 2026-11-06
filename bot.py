@@ -9,7 +9,8 @@ item, store, profile name and a tag of the member: none of the order number,
 proxies or other details the AIO bots put in their webhooks.
 
 It also sends DMs the admin panel queues (an unmatched checkout assigned to a
-member, or "Resend DM"), posts drop recaps sent from the admin panel, DMs fee
+member, or "Resend DM"), posts drop recaps sent from the admin panel, DMs each
+member a summary of their hits from a drop ("DM everyone their hits"), DMs fee
 invoices and their reminders, and catches up on messages posted while it was offline.
 
 The channels to watch are set on the admin panel's Channels tab. The bot re-reads
@@ -256,6 +257,71 @@ async def send_pending_recaps() -> None:
             set_recap(post["id"], status="failed", error=str(e)[:200])
 
 
+HIT_LINES = 20  # Checkouts listed in one summary DM; the rest are on the dashboard.
+
+
+def hit_summary_embed(job, hits) -> discord.Embed:
+    """One member's hits from a drop: each item with the profile and email it hit on.
+    Only ever sent to that member, so their own email is fine here."""
+    total = sum(c["qty"] for c in hits)
+    lines = []
+    for c in hits[:HIT_LINES]:
+        qty = f" ×{c['qty']}" if c["qty"] > 1 else ""
+        where = " · ".join(x for x in (c["retailer"], c["size"]) if x)
+        lines.append(f"**{c['product'] or 'Item'}**{qty}" + (f" · {where}" if where else ""))
+        lines.append(f"↳ Profile `{c['profile_name'] or '—'}`" + (f" · {c['email']}" if c["email"] else ""))
+    if len(hits) > HIT_LINES:
+        lines.append(f"…and {len(hits) - HIT_LINES} more on your dashboard")
+    embed = discord.Embed(
+        title=f"📦 {job['title']}: your hits", color=0x23CED9,
+        description=(f"<t:{job['from']}:f> – <t:{job['to']}:t>\n"
+                     f"**{total} item{'s' if total != 1 else ''}** from {len(hits)} checkout{'s' if len(hits) != 1 else ''}\n\n"
+                     + "\n".join(lines))[:4096])
+    url = f"{config.PUBLIC_URL}/dashboard#checkouts"
+    if url.startswith("https://"):
+        embed.url = url
+    embed.set_footer(text="BUFFSQUAD ACO · Full details on your dashboard")
+    return embed
+
+
+def set_hit_dm(job_id: str, user_id: int, status: str, error: str) -> None:
+    with db.transaction() as conn:
+        jobs = db.kv_get(conn, "hit_dms", [])
+        for job in jobs:
+            if job["id"] == job_id:
+                for m in job["members"]:
+                    if m["userId"] == user_id:
+                        m.update(status=status, error=error)
+        db.kv_set(conn, "hit_dms", jobs)
+
+
+async def send_pending_hit_dms(limit: int = 25) -> None:
+    """DMs each member their hits from a drop, for the summaries admins send from the Drop recap window."""
+    todo = []
+    with db.transaction() as conn:
+        for job in db.kv_get(conn, "hit_dms", []):
+            for m in job["members"]:
+                if m["status"] == "pending" and len(todo) < limit:
+                    user = conn.execute("SELECT discord_id FROM users WHERE id = ?", (m["userId"],)).fetchone()
+                    hits = db.member_hits(conn, m["userId"], job["from"], job["to"])
+                    todo.append((job, m["userId"], user["discord_id"] if user else "", hits))
+    for job, user_id, discord_id, hits in todo:
+        status, error = "sent", ""
+        try:
+            if not hits:
+                raise ValueError("No hits left in that time (canceled or deleted)")
+            if not discord_id.isdigit():
+                raise ValueError("not a Discord account (dev sign-in)")
+            user = client.get_user(int(discord_id)) or await client.fetch_user(int(discord_id))
+            await user.send(embed=hit_summary_embed(job, hits))
+        except discord.Forbidden:
+            status, error = "failed", "Member has DMs closed or doesn't share a server with the bot"
+        except (discord.HTTPException, ValueError) as e:
+            status, error = "failed", str(e)[:200]
+        set_hit_dm(job["id"], user_id, status, error)
+        log.info("Hit summary DM %s for member #%s (%s)%s", status, user_id, job["title"], f": {error}" if error else "")
+
+
 def feed_status(channel_id: int) -> dict:
     """What the admin panel shows next to the feed channel: its name, and whether the bot can post there."""
     channel = client.get_channel(channel_id)
@@ -332,6 +398,7 @@ async def heartbeat() -> None:
             await send_pending_dms()
             await send_pending_feed()
             await send_pending_recaps()
+            await send_pending_hit_dms()
             await send_pending_invoices()
         except Exception:  # Keep the loop alive; the next tick retries.
             log.exception("Heartbeat failed")
