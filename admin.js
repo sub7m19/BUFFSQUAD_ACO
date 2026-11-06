@@ -1277,7 +1277,7 @@ function renderRecap() {
   const s = recap.stats;
   const preview = byId("recap-preview");
   byId("recap-post").disabled = byId("recap-copy").disabled = !s || !s.checkouts;
-  byId("recap-dms").disabled = !s || !s.members;
+  renderPick();
   if (!s) return;
   if (!s.checkouts) {
     preview.innerHTML = `<p class="mini-empty">No successful checkouts since ${escape(when(s.from))}.</p>`;
@@ -1353,26 +1353,71 @@ byId("recap-copy").addEventListener("click", async () => {
 });
 
 // Each member with a hit in this time gets a DM listing their items, with the profile and email each one hit on.
+// Who gets their hits DMed: everyone who hit, minus anyone unticked. Unticked members stay
+// unticked when the time range changes.
+recap.skip = new Set();
+const hitMembers = () => (recap.stats && recap.stats.hitMembers) || [];
+const pickedMembers = () => hitMembers().filter((m) => !recap.skip.has(m.userId));
+
+function dmLabel() {
+  const n = pickedMembers().length;
+  return n && n === hitMembers().length ? "DM everyone their hits" : `DM ${plural(n, "member")} their hits`;
+}
+
+function renderPick() {
+  const all = hitMembers();
+  const picked = pickedMembers();
+  byId("recap-pick").hidden = !all.length;
+  byId("recap-pick-count").textContent = picked.length === all.length ? "everyone" : `${picked.length} of ${all.length}`;
+  byId("recap-pick-list").innerHTML = all.map((m) => `
+    <li><label class="check-row">
+      <input type="checkbox" value="${m.userId}" ${recap.skip.has(m.userId) ? "" : "checked"}>
+      <span class="recap-who">${escape(m.name)}</span>
+      <span class="recap-count"><b>${items(m.items)}</b> · ${plural(m.checkouts, "checkout")}</span>
+    </label></li>`).join("");
+  const btn = byId("recap-dms");
+  btn.disabled = !picked.length;
+  if (!btn.dataset.armed && !btn.dataset.sending) btn.textContent = dmLabel();
+}
+
+byId("recap-pick-list").addEventListener("change", (e) => {
+  const id = Number(e.target.value);
+  if (e.target.checked) recap.skip.delete(id);
+  else recap.skip.add(id);
+  renderPick();
+});
+
+byId("recap-pick").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-pick]");
+  if (!btn) return;
+  recap.skip = btn.dataset.pick === "all" ? new Set() : new Set(hitMembers().map((m) => m.userId));
+  renderPick();
+});
+
 byId("recap-dms").addEventListener("click", async () => {
   const btn = byId("recap-dms");
   const error = byId("recap-error");
   const s = recap.stats;
-  if (!s || !s.members) return;
+  const picked = pickedMembers();
+  if (!s || !picked.length) return;
   // First click asks; a second within a few seconds sends.
   if (!btn.dataset.armed) {
     btn.dataset.armed = "1";
-    btn.textContent = `Send to ${plural(s.members, "member")}?`;
+    btn.textContent = picked.length === 1 ? `Send to ${picked[0].name}?` : `Send to ${plural(picked.length, "member")}?`;
     setTimeout(() => {
-      if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = "DM everyone their hits"; }
+      if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = dmLabel(); }
     }, 4000);
     return;
   }
   delete btn.dataset.armed;
+  btn.dataset.sending = "1";
   error.hidden = true;
   btn.disabled = true;
   btn.textContent = "Sending…";
   try {
-    const { id, members } = await api("POST", "/api/admin/recap/dms", { from: s.from, to: s.to, title: recapTitle() });
+    // Everyone ticked: send to whoever hit, so a member who hit since the window opened isn't missed.
+    const userIds = picked.length === hitMembers().length ? undefined : picked.map((m) => m.userId);
+    const { id, members } = await api("POST", "/api/admin/recap/dms", { from: s.from, to: s.to, title: recapTitle(), userIds });
     // The bot sends them over its next few ticks; wait to say how it went.
     let st = { pending: members, sent: 0, failed: 0, errors: [] };
     for (let i = 0; i < 30 && st.pending; i++) {
@@ -1391,8 +1436,9 @@ byId("recap-dms").addEventListener("click", async () => {
     error.textContent = err.message;
     error.hidden = false;
   } finally {
-    btn.disabled = false;
-    btn.textContent = "DM everyone their hits";
+    delete btn.dataset.sending;
+    btn.disabled = !pickedMembers().length;
+    btn.textContent = dmLabel();
   }
 });
 

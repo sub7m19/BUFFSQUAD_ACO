@@ -723,10 +723,13 @@ DROP_HITS = """checkouts.result = 'hit' AND checkouts.stage != 'canceled' AND ch
 
 
 def drop_hit_members(conn, start: int, end: int) -> list[sqlite3.Row]:
-    """The members with a successful checkout between two times (seconds), for the hit summary DMs."""
+    """The members with a successful checkout between two times (seconds), for the hit summary DMs:
+    each one's id, name, and how many checkouts and items they got, most items first."""
     return conn.execute(
-        f"""SELECT DISTINCT users.id, users.discord_id FROM checkouts JOIN users ON users.id = checkouts.user_id
-            WHERE {DROP_HITS} ORDER BY users.id""", (start, end)).fetchall()
+        f"""SELECT users.id, users.discord_id, COALESCE(NULLIF(users.display_name, ''), users.username) AS name,
+                   COUNT(*) AS checkouts, SUM(checkouts.qty) AS items
+            FROM checkouts JOIN users ON users.id = checkouts.user_id
+            WHERE {DROP_HITS} GROUP BY users.id ORDER BY items DESC, name COLLATE NOCASE""", (start, end)).fetchall()
 
 
 def member_hits(conn, user_id: int, start: int, end: int) -> list[sqlite3.Row]:

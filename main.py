@@ -1139,7 +1139,10 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         start, end = recap_range(q("from"), q("to"))
         recaps = db.kv_get(conn, "recaps", [])
         last = recaps[-1]["channel"] if recaps else (db.feed_channel(conn) or {}).get("id", "")
-        return h.send_json(200, {**db.drop_recap(conn, start, end), "channel": last, "posts": recaps[-5:]})
+        # Everyone who hit, not just the top ten, so admins can pick who gets their hits DMed.
+        hit_members = [{"userId": m["id"], "name": m["name"], "items": m["items"], "checkouts": m["checkouts"]}
+                       for m in db.drop_hit_members(conn, start, end)]
+        return h.send_json(200, {**db.drop_recap(conn, start, end), "channel": last, "posts": recaps[-5:], "hitMembers": hit_members})
 
     if (method, path) == ("POST", "/api/admin/recap"):
         body = h.body()
@@ -1166,13 +1169,23 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         members = db.drop_hit_members(conn, start, end)
         if not members:
             raise AppError(400, "No member has a successful checkout in that time.")
+        # Only the members the admin picked, if they picked; anyone without a hit in that time is skipped.
+        if body.get("userIds") is not None:
+            try:
+                picked = {int(u) for u in body["userIds"]}
+            except (TypeError, ValueError):
+                raise AppError(400, "Bad member list.")
+            members = [m for m in members if m["id"] in picked]
+            if not members:
+                raise AppError(400, "Pick at least one member who hit in that time.")
         title = str(body.get("title") or "").strip()[:80] or "Drop recap"
         # The bot sends them on its next ticks (bot.send_pending_hit_dms) and marks each sent or failed.
         job = {"id": secrets.token_hex(4), "title": title, "from": start, "to": end,
                "members": [{"userId": m["id"], "status": "pending", "error": ""} for m in members],
                "by": admin["username"], "at": db.now() * 1000}
         db.kv_set(conn, "hit_dms", (db.kv_get(conn, "hit_dms", []) + [job])[-20:])
-        db.audit(conn, admin["id"], "recap.dms", f"{title}: DMed {len(members)} member{'s' if len(members) != 1 else ''} their hits")
+        who = "" if body.get("userIds") is None else f" ({', '.join(m['name'] for m in members[:10])}{'…' if len(members) > 10 else ''})"
+        db.audit(conn, admin["id"], "recap.dms", f"{title}: DMed {len(members)} member{'s' if len(members) != 1 else ''} their hits{who}")
         return h.send_json(200, {"ok": True, "id": job["id"], "members": len(members)})
 
     m_dms = re.fullmatch(r"/api/admin/recap/dms/([0-9a-f]{8})", path)

@@ -459,6 +459,15 @@ class ServerTest(ServerCase):
         self.assertEqual((st["pending"], st["sent"], st["failed"]), (1, 0, 0))
         self.assertEqual(self.client().login("rio").request("POST", "/api/admin/recap/dms", {"from": start * 1000})[0], 403)
         self.assertEqual(admin.request("POST", "/api/admin/recap/dms", {"from": (start - 7200) * 1000, "to": (start - 3600) * 1000})[0], 400)
+        # The recap lists everyone who hit, so admins can pick who gets a DM.
+        self.assertEqual([(m["name"], m["items"], m["checkouts"]) for m in s["hitMembers"]], [("Rio", 5, 2)])
+        rio_id = s["hitMembers"][0]["userId"]
+        span = {"from": start * 1000, "to": (start + 3600) * 1000}
+        self.assertEqual(admin.request("POST", "/api/admin/recap/dms", {**span, "userIds": []})[0], 400)  # nobody picked
+        self.assertEqual(admin.request("POST", "/api/admin/recap/dms", {**span, "userIds": [rio_id + 999]})[0], 400)  # didn't hit
+        self.assertEqual(admin.request("POST", "/api/admin/recap/dms", {**span, "userIds": ["x"]})[0], 400)
+        status, picked, _ = admin.request("POST", "/api/admin/recap/dms", {**span, "userIds": [rio_id]})
+        self.assertEqual((status, picked["members"]), (200, 1))
         with db.transaction() as conn:
             queued = db.kv_get(conn, "hit_dms")[-1]
             hits = db.member_hits(conn, queued["members"][0]["userId"], queued["from"], queued["to"])

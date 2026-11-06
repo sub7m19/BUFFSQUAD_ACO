@@ -576,6 +576,14 @@
         <input name="channel" inputmode="numeric" autocomplete="off" placeholder="Channel ID">
       </label>
       <p class="field-hint">Right-click the channel in Discord and pick <b>Copy Channel ID</b>. The bot needs View Channel, Send Messages and Embed Links there. Member tags show their names without pinging them.</p>
+      <details class="recap-pick" id="recap-pick" hidden>
+        <summary>DM their hits to <b id="recap-pick-count">everyone</b></summary>
+        <div class="recap-pick-tools">
+          <button class="button ghost small" type="button" data-pick="all">Select all</button>
+          <button class="button ghost small" type="button" data-pick="none">Clear</button>
+        </div>
+        <ul class="recap-pick-list" id="recap-pick-list"></ul>
+      </details>
       <p class="field-error" id="recap-error" hidden></p>
       <div class="modal-actions">
         <button class="button ghost" type="button" data-close-modal>Close</button>

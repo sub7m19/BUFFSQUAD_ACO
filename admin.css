@@ -1046,6 +1046,64 @@ code.revealed {
   display: none;
 }
 
+/* Who gets their hits DMed: a checklist of everyone who hit, folded away until opened. */
+.recap-pick[hidden] {
+  display: none;
+}
+
+.recap-pick {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.recap-pick summary {
+  padding: 10px 14px;
+  color: var(--soft);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.recap-pick summary b {
+  color: var(--cyan);
+}
+
+.recap-pick-tools {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 8px;
+}
+
+.recap-pick-list {
+  display: grid;
+  max-height: 220px;
+  margin: 0;
+  padding: 0 6px 8px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.recap-pick-list .check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.recap-pick-list .check-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.recap-pick-list input {
+  flex: 0 0 auto;
+  accent-color: var(--cyan);
+}
+
 /* Fees */
 .fee-range select {
   min-height: 38px;
