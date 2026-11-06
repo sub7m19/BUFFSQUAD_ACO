@@ -289,25 +289,61 @@ async def send_pending_recaps() -> None:
             set_recap(post["id"], status="failed", error=str(e)[:200])
 
 
+STORE_ICONS = {"Target": "🎯", "Pokemon Center": "⚡"}
+STORE_NAMES = {"Pokemon Center": "Pokémon Center"}
+FIELD_VALUE = 1024  # Discord's limit on an embed field's text
+EMBED_TOTAL = 6000  # ...and on all of an embed's text together
+HIT_GREEN = 0x7BE3A0  # the dashboard's green: a hit
+
+
+def bot_avatar() -> str | None:
+    """The bot's own profile picture, if one is set (not Discord's default), for the DM's header and footer."""
+    user = client.user
+    return user.avatar.url if user is not None and user.avatar else None
+
+
 def hit_summary_embed(job, hits) -> discord.Embed:
-    """One member's hits from a drop: each item with the profile and email it hit on.
-    Only ever sent to that member, so their own email is fine here."""
+    """One member's hits from a drop, laid out to read at a glance: totals side by side, then a
+    section per store with each item, and the profile and email it hit on in small grey text.
+    Only ever sent to that member, so their own email is fine here; it's behind a spoiler so a
+    screenshot of the DM doesn't show it."""
     total = sum(c["qty"] for c in hits)
-    lines = []
+    stores: dict[str, list] = {}
     for c in hits:
-        qty = f" · Quantity {c['qty']}" if c["qty"] > 1 else ""
-        where = " · ".join(x for x in (c["retailer"], c["size"]) if x)
-        # Item and its profile/email as one entry, so a cut never splits them.
-        lines.append(f"**{c['product'] or 'Item'}**{qty}" + (f" · {where}" if where else "")
-                     + f"\n↳ Profile `{c['profile_name'] or '—'}`" + (f" · {c['email']}" if c["email"] else ""))
-    head = (f"<t:{job['from']}:f> – <t:{job['to']}:t>\n"
-            f"**{total} item{'s' if total != 1 else ''}** from {len(hits)} checkout{'s' if len(hits) != 1 else ''}\n")
-    embed = discord.Embed(title=f"📦 {job['title']}: your hits", color=0x23CED9,
-                          description=fit_lines(head, lines, "…and {n} more on your dashboard"))
+        stores.setdefault(c["retailer"] or "Other", []).append(c)
+
+    embed = discord.Embed(title=f"🎉 {job['title']}: you hit!", color=HIT_GREEN,
+                          description=f"<t:{job['from']}:D> · <t:{job['from']}:t> – <t:{job['to']}:t>")
+    embed.add_field(name="Items", value=f"**{total}**")
+    embed.add_field(name="Checkouts", value=f"**{len(hits)}**")
+    embed.add_field(name="Stores", value=f"**{len(stores)}**")
+
+    # A section per store; each hit is its item line, then its profile and email as subtext,
+    # with a blank line between hits. Kept within Discord's per-field and whole-embed limits.
+    budget = EMBED_TOTAL - len(embed.title) - len(embed.description) - 200
+    for i, (store, items) in enumerate(stores.items()):
+        if i == 22:  # 3 total fields + 22 stores = Discord's 25-field limit
+            break
+        entries = []
+        for c in items:
+            details = " · ".join(x for x in (f"Quantity {c['qty']}" if c["qty"] > 1 else "", f"Size {c['size']}" if c["size"] else "") if x)
+            who = " · ".join(x for x in (c["profile_name"], f"||{c['email']}||" if c["email"] else "") if x)
+            entries.append(f"**{c['product'] or 'Item'}**" + (f"  ·  {details}" if details else "")
+                           + (f"\n-# {who}" if who else "") + "\n")  # the trailing newline leaves a blank line between hits
+        name = f"{STORE_ICONS.get(store, '🛒')} {STORE_NAMES.get(store, store)}"
+        value = fit_lines("", entries, "-# …and {n} more on your dashboard", min(FIELD_VALUE, budget - len(name))).strip()
+        budget -= len(name) + len(value)
+        embed.add_field(name=name, value=value or "—", inline=False)
+        if budget < 200:
+            break
+
     url = f"{config.PUBLIC_URL}/dashboard#checkouts"
     if url.startswith("https://"):
         embed.url = url
-    embed.set_footer(text="BUFFSQUAD ACO · Full details on your dashboard")
+    avatar = bot_avatar()
+    embed.set_footer(text="BUFFSQUAD ACO · View it all on your dashboard", icon_url=avatar)
+    if avatar:
+        embed.set_thumbnail(url=avatar)
     return embed
 
 

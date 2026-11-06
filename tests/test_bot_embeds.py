@@ -118,14 +118,27 @@ class InvoiceEmbedTest(unittest.TestCase):
 
 
 class HitSummaryEmbedTest(unittest.TestCase):
-    def test_lists_profile_and_email_and_fits(self):
-        job = {"title": "Friday drop", "from": 1, "to": 2}
-        text = bot.hit_summary_embed(job, [checkout(KNOCK_OUT, qty=2)]).description
-        self.assertIn(f"**{KNOCK_OUT}** · Quantity 2 · Target\n↳ Profile `jake-main` · jake+1@gmail.com", text)
-        text = bot.hit_summary_embed(job, [checkout(f"{KNOCK_OUT} {i}") for i in range(100)]).description
-        self.assertLessEqual(len(text), bot.EMBED_DESCRIPTION)
-        self.assertTrue(text.endswith("more on your dashboard"))
-        self.assertTrue(text.splitlines()[-2].startswith("↳ Profile"))  # never ends mid-entry
+    JOB = {"title": "Friday drop", "from": 1, "to": 2}
+
+    def test_totals_then_a_section_per_store(self):
+        hits = [checkout(KNOCK_OUT, qty=2), checkout("Prismatic ETB", qty=1, size="Box"),
+                checkout("151 Booster Bundle", retailer="Pokemon Center", email="")]
+        embed = bot.hit_summary_embed(self.JOB, hits)
+        self.assertEqual(embed.title, "🎉 Friday drop: you hit!")
+        self.assertEqual([(f.name, f.value) for f in embed.fields[:3]], [("Items", "**4**"), ("Checkouts", "**3**"), ("Stores", "**2**")])
+        target, pc = embed.fields[3], embed.fields[4]
+        self.assertEqual(target.name, "🎯 Target")
+        self.assertEqual(target.value, f"**{KNOCK_OUT}**  ·  Quantity 2\n-# jake-main · ||jake+1@gmail.com||\n\n"
+                                       "**Prismatic ETB**  ·  Size Box\n-# jake-main · ||jake+1@gmail.com||")
+        self.assertEqual((pc.name, pc.value), ("⚡ Pokémon Center", "**151 Booster Bundle**\n-# jake-main"))
+
+    def test_lots_of_hits_stay_within_discords_limits(self):
+        embed = bot.hit_summary_embed(self.JOB, [checkout(f"{KNOCK_OUT} {i}") for i in range(100)])
+        self.assertLessEqual(len(embed), bot.EMBED_TOTAL)
+        value = embed.fields[3].value
+        self.assertLessEqual(len(value), bot.FIELD_VALUE)
+        self.assertTrue(value.endswith("more on your dashboard"))
+        self.assertTrue(value.splitlines()[-3].startswith("-# jake-main"))  # never ends mid-entry
 
 
 if __name__ == "__main__":
