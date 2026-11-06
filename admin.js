@@ -459,9 +459,18 @@ function renderInvoice(inv) {
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
         <span>${escape(c.retailer)}${c.qty > 1 ? ` · Qty ${c.qty}` : ""}${c.order ? ` · #${escape(c.order)}` : ""} · ${escape(c.date)} · ${money(c.price)}</span>
+        ${c.feeMath ? `<span class="fee-math ${c.feeMath.adds ? "" : "off"}" title="${escape(c.feeMath.basis)}">${escape(c.feeMath.math)}</span>` : ""}
       </div>
       <div class="checkout-fee"><strong>${money(c.fee)}</strong></div>
     </li>`).join("") || `<li class="mini-empty">No checkouts left on this invoice.</li>`;
+  // What the fees were charged by (from the ACO fees settings), each with its subtotal, adding up to the total.
+  const bases = inv.feeBases || [];
+  byId("invoice-bases").innerHTML = bases.length ? `
+    <span class="recap-label">How the fee is charged</span>
+    <ul>${bases.map((b) => `
+      <li><span>${escape(b.basis)}</span><span>${plural(b.checkouts, "checkout")} · <b>${money(b.total)}</b></span></li>`).join("")}</ul>
+    ${inv.list.some((c) => c.feeMath && !c.feeMath.adds) ? `<p class="field-error">Some lines (in red) don't match today's fee settings. Check them before sending.</p>` : ""}` : "";
+  byId("invoice-sum").textContent = bases.length > 1 ? `(${bases.map((b) => money(b.total)).join(" + ")})` : "";
   byId("invoice-total").textContent = money(inv.amount);
   byId("invoice-toggle").textContent = inv.status === "paid" ? "Mark unpaid" : "Mark paid";
   byId("invoice-toggle").classList.toggle("ghost", inv.status === "paid");

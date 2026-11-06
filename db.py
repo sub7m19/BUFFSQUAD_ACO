@@ -275,6 +275,66 @@ def compute_fee(conn, retailer: str, product: str, sku: str, price: float, qty: 
     return amount, "default"
 
 
+def _usd(x: float) -> str:
+    return f"${x:,.2f}"
+
+
+def _fee_kind_math(kind: str, amount: float, price: float, qty: int) -> tuple[str, str, float]:
+    """(how it's charged, the math for this checkout, what it comes to) for one fee setting."""
+    qty = max(1, qty or 1)
+    if kind == "percent":
+        fee = round((price or 0) * amount / 100, 2)
+        return f"{amount:g}% of price", f"{amount:g}% of {_usd(price or 0)} = {_usd(fee)}", fee
+    if kind == "per_item":
+        fee = round(amount * qty, 2)
+        return f"{_usd(amount)} per item", f"{_usd(amount)} × {qty} item{'s' if qty != 1 else ''} = {_usd(fee)}", fee
+    return f"{_usd(amount)} per checkout", f"{_usd(amount)} per checkout", round(amount, 2)
+
+
+def fee_explainer(conn):
+    """A function that tells, for a checkout, what its fee was charged by and the math:
+    {"basis": "Target default: 5% of price", "math": "5% of $63.98 = $3.20", "adds": True}.
+    Reads the ACO fees settings once, so explaining a long invoice is cheap. "adds" is False
+    when today's settings give a different fee than was charged (they changed since, or an
+    admin edited the fee), so the math shown never silently disagrees with the charge."""
+    rules = {r.get("id"): r for r in fee_rules(conn)}
+    table, types = fees(conn), fee_types(conn)
+
+    def explain(row) -> dict:
+        source, fee = row["fee_source"] or "", round(row["fee"] or 0, 2)
+        if source == "manual":
+            return {"basis": "Set by hand by an admin", "math": _usd(fee), "adds": True}
+        if source.startswith("rule:"):
+            rule = rules.get(source[5:])
+            if not rule:
+                return {"basis": "A fee rule that has since been deleted", "math": _usd(fee), "adds": True}
+            name = f"SKU {rule.get('text')}" if rule.get("match") == "sku" else f"“{rule.get('text')}”"
+            where = f" at {rule['retailer']}" if rule.get("retailer") else ""
+            how, math, expected = _fee_kind_math(rule.get("kind") or "flat", float(rule.get("amount") or 0), row["price"], row["qty"])
+            basis = f"{name} rule{where}: {how}"
+        else:
+            key = row["retailer"] if row["retailer"] in table else "Other"
+            how, math, expected = _fee_kind_math(types.get(key, "flat"), float(table[key]), row["price"], row["qty"])
+            basis = f"{key} default: {how}"
+        adds = abs(expected - fee) < 0.01
+        if not adds:
+            math = f"{math}, but {_usd(fee)} was charged (fee settings changed since, or it was edited)"
+        return {"basis": basis, "math": math, "adds": adds}
+
+    return explain
+
+
+def fee_bases(rows, explain) -> list[dict]:
+    """An invoice's fees grouped by what charged them, each with its checkouts and subtotal."""
+    groups: dict[str, dict] = {}
+    for r in rows:
+        basis = explain(r)["basis"]
+        g = groups.setdefault(basis, {"basis": basis, "checkouts": 0, "total": 0.0})
+        g["checkouts"] += 1
+        g["total"] = round(g["total"] + r["fee"], 2)
+    return list(groups.values())
+
+
 def checkout_channels(conn) -> list[dict]:
     """Discord channels the bot watches for checkout messages, managed on the admin
     panel's Channels tab. The first time, it starts from CHECKOUT_CHANNEL_IDS in .env."""
@@ -733,7 +793,9 @@ def invoice_json(conn, inv, with_checkouts: bool = False) -> dict:
         "overdue": inv["status"] == "open" and now() - inv["created_at"] > days * 86400,
     }
     if with_checkouts:
-        data["list"] = [checkout_json(r) for r in rows]
+        explain = fee_explainer(conn)
+        data["list"] = [{**checkout_json(r), "feeMath": explain(r)} for r in rows]
+        data["feeBases"] = fee_bases(rows, explain)
     return data
 
 

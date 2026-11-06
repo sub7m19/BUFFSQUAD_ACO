@@ -165,23 +165,31 @@ def fit_lines(head: str, lines: list[str], more: str, limit: int = EMBED_DESCRIP
 def invoice_embed(conn, inv, reminder: bool = False) -> discord.Embed:
     number = db.invoice_number(inv["id"])
     rows = db.invoice_checkouts(conn, inv["id"])
-    amount = sum(r["fee"] for r in rows)
-    # The same item at the same fee reads as one line ("×14 checkouts · $67.20"), so a big
-    # drop's invoice fits in one message.
+    amount = round(sum(r["fee"] for r in rows), 2)
+    explain = db.fee_explainer(conn)
+    # The same item at the same price and fee reads as one line with its math
+    # ("×2 · 5% of $63.98 = $3.20 each × 14 = $44.80"), so a big drop's invoice fits in one message.
     groups: dict[tuple, list] = {}
     for r in rows:
-        groups.setdefault((r["product"] or "Item", r["qty"], r["fee"]), []).append(r)
+        groups.setdefault((r["product"] or "Item", r["qty"], r["price"], r["fee"]), []).append(r)
     lines = []
-    for (product, qty, fee), same in groups.items():
-        line = f"{product}{f' ×{qty}' if qty > 1 else ''} · ${fee:,.2f}"
+    for (product, qty, _, fee), same in groups.items():
+        math = explain(same[0])["math"]
+        line = f"{product}{f' ×{qty}' if qty > 1 else ''}\n↳ {math}"
         if len(same) > 1:
-            line += f" each, ×{len(same)} checkouts · **${fee * len(same):,.2f}**"
+            line += f" each × {len(same)} = **${fee * len(same):,.2f}**"
         lines.append(line)
+    # What the fees were charged by, from the ACO fees settings, with each one's subtotal.
+    bases = db.fee_bases(rows, explain)
+    how = "\n".join(f"• {b['basis']} · {b['checkouts']} checkout{'s' if b['checkouts'] != 1 else ''} · ${b['total']:,.2f}" for b in bases)
+    head = (f"You owe **${amount:,.2f}** for {len(rows)} checkout{'s' if len(rows) != 1 else ''}.\n\n"
+            f"**How the fee is charged**\n{how}\n\n**Checkouts**")
     embed = discord.Embed(
         title=f"Reminder: ACO fee invoice {number} is still open" if reminder else f"ACO fee invoice {number}",
-        description=fit_lines(f"You owe **${amount:,.2f}** for {len(rows)} checkout{'s' if len(rows) != 1 else ''}.\n\n**Checkouts**",
-                              lines, "…and {n} more on your dashboard's Billing page"),
-        color=0xFCA47C)
+        description=fit_lines(head, lines, "…and {n} more on your dashboard's Billing page"), color=0xFCA47C)
+    # The subtotals above add up to what they owe.
+    total = (" + ".join(f"${b['total']:,.2f}" for b in bases) + f" = **${amount:,.2f}**") if len(bases) > 1 else f"**${amount:,.2f}**"
+    embed.add_field(name="Total", value=total[:1024], inline=False)
     pay = db.pay_settings(conn)
     how = [f"**{name}:** {pay[k]}" for k, name in db.PAY_METHODS.items() if pay[k]]
     if how:

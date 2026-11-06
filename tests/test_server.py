@@ -332,6 +332,11 @@ class ServerTest(ServerCase):
         self.assertFalse(any(u["userId"] == ivy_id for u in fees["unbilled"]))
         self.assertGreaterEqual(admin.request("GET", "/api/admin/overview")[1]["unpaidInvoices"], 1)
 
+        # The invoice shows what charged each fee and the math; these fees were set by hand.
+        _, detail, _ = admin.request("GET", f"/api/admin/invoices/{inv['id']}")
+        self.assertEqual(detail["feeBases"], [{"basis": "Set by hand by an admin", "checkouts": 3, "total": 30}])
+        self.assertEqual(detail["list"][0]["feeMath"], {"basis": "Set by hand by an admin", "math": "$10.00", "adds": True})
+
         # A canceled checkout comes off the invoice.
         admin.request("PATCH", f"/api/admin/checkouts/{ids[0]}", {"stage": "canceled"})
         _, detail, _ = admin.request("GET", f"/api/admin/invoices/{inv['id']}")

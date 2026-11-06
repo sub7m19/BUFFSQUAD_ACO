@@ -1100,6 +1100,59 @@ code.revealed {
   font-size: 1.3rem;
 }
 
+.invoice-total small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* How the fee is charged: the ACO fees settings behind an invoice, with subtotals. */
+.invoice-bases:empty {
+  display: none;
+}
+
+.invoice-bases {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.invoice-bases ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.invoice-bases li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  color: var(--soft);
+  font-size: 0.88rem;
+}
+
+.invoice-bases b {
+  color: var(--white);
+}
+
+.invoice-bases .field-error {
+  margin: 0;
+}
+
+.invoice-lines .checkout-info .fee-math {
+  color: var(--cyan);
+  font-weight: 700;
+}
+
+.invoice-lines .checkout-info .fee-math.off {
+  color: var(--red);
+}
+
 #invoice-void[hidden],
 #invoice-resend[hidden] {
   display: none;
