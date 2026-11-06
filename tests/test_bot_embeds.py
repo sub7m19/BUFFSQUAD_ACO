@@ -55,25 +55,29 @@ class FitLinesTest(unittest.TestCase):
 
 
 class FeeMathTest(unittest.TestCase):
-    def test_retailer_default_percent(self):
-        self.assertEqual(explain(checkout(KNOCK_OUT, qty=2, price=63.98, fee=3.20)),
-                         {"basis": "Target default: 5% of price", "math": "5% of $63.98 = $3.20", "adds": True})
+    def test_retailer_default_percent_is_an_equation(self):
+        self.assertEqual(explain(checkout(KNOCK_OUT, qty=2, price=63.98, fee=3.20)), {
+            "basis": "Target default: 5% of price", "result": "$3.20", "math": "$63.98 × 5% = $3.20", "adds": True, "expected": 3.2,
+            "terms": [{"value": "$63.98", "label": "price"}, {"value": "5%", "label": "Target fee"}]})
 
     def test_per_item_and_flat_rules(self):
         e = explain(checkout("Prismatic ETB", qty=2, fee=12.00, fee_source="rule:r1"))
         self.assertEqual((e["basis"], e["math"]), ("“Prismatic” rule at Target: $6.00 per item", "$6.00 × 2 items = $12.00"))
+        self.assertEqual(e["terms"], [{"value": "$6.00", "label": "fee"}, {"value": "2", "label": "items"}])
         e = explain(checkout("Thing", fee=10, fee_source="rule:r2"))
-        self.assertEqual((e["basis"], e["math"]), ("SKU 123 rule: $10.00 per checkout", "$10.00 per checkout"))
+        self.assertEqual((e["basis"], e["math"], e["terms"]),
+                         ("SKU 123 rule: $10.00 per checkout", "$10.00 per checkout", [{"value": "$10.00", "label": "per checkout"}]))
 
     def test_other_store_manual_and_deleted_rule(self):
-        self.assertEqual(explain(checkout("X", fee=2, retailer="Walmart"))["basis"], "Other default: $2.00 per checkout")
-        self.assertEqual(explain(checkout("X", fee=7, fee_source="manual"))["basis"], "Set by hand by an admin")
-        self.assertTrue(explain(checkout("X", fee=7, fee_source="rule:gone"))["adds"])
+        e = explain(checkout("X", fee=2, retailer="Walmart"))
+        self.assertEqual((e["basis"], e["terms"][0]["label"]), ("Other default: $2.00 per checkout", "per checkout"))
+        e = explain(checkout("X", fee=7, fee_source="manual"))
+        self.assertEqual((e["basis"], e["terms"], e["math"]), ("Set by hand by an admin", [], "$7.00"))
+        self.assertEqual(explain(checkout("X", fee=7, fee_source="rule:gone"))["terms"], [])
 
-    def test_flags_a_fee_that_no_longer_adds_up(self):
+    def test_a_fee_that_no_longer_adds_up_shows_just_its_amount(self):
         e = explain(checkout(KNOCK_OUT, price=63.98, fee=4.00))
-        self.assertFalse(e["adds"])
-        self.assertIn("but $4.00 was charged", e["math"])
+        self.assertEqual((e["adds"], e["math"], e["expected"]), (False, "$4.00", 3.2))
 
 
 class InvoiceEmbedTest(unittest.TestCase):
@@ -84,12 +88,21 @@ class InvoiceEmbedTest(unittest.TestCase):
         embed = invoice(rows)
         text = embed.description
         self.assertIn("You owe **$113.60** for 30 checkouts.", text)
-        self.assertIn("• Target default: 5% of price · 28 checkouts · $89.60", text)
+        self.assertIn("• Target: 5% of price · 28 checkouts · $89.60", text)
         self.assertIn("• “Prismatic” rule at Target: $6.00 per item · 2 checkouts · $24.00", text)
-        self.assertIn(f"{KNOCK_OUT} ×2\n↳ 5% of $63.98 = $3.20 each × 28 = **$89.60**", text)
-        self.assertIn("Prismatic ETB ×2\n↳ $6.00 × 2 items = $12.00 each × 2 = **$24.00**", text)
+        self.assertIn(f"**{KNOCK_OUT}** ×2\n↳ `$63.98 × 5% = $3.20` × 28 checkouts = **$89.60**", text)
+        self.assertIn("**Prismatic ETB** ×2\n↳ `$6.00 × 2 items = $12.00` × 2 checkouts = **$24.00**", text)
         self.assertEqual(embed.fields[0].value, "$89.60 + $24.00 = **$113.60**")
         self.assertNotIn("more", text)
+
+    def test_members_never_see_how_admins_set_a_fee(self):
+        # A hand-set fee and one today's settings no longer give: just the amount, under "Other fees".
+        text = invoice([checkout("Hand set", fee=7, fee_source="manual"), checkout(KNOCK_OUT, price=63.98, fee=4.00)]).description
+        self.assertIn("**Hand set**\n↳ **$7.00** fee", text)
+        self.assertIn(f"**{KNOCK_OUT}**\n↳ **$4.00** fee", text)
+        self.assertIn("• Other fees (amount on each line) · 2 checkouts · $11.00", text)
+        self.assertNotIn("admin", text)
+        self.assertNotIn("Target", text.split("**Checkouts**")[0].split("How the fee")[1])
 
     def test_huge_invoice_stays_under_the_limit(self):
         rows = [checkout(f"{KNOCK_OUT} variant {i}", fee=1 + i / 100) for i in range(300)]
@@ -97,7 +110,11 @@ class InvoiceEmbedTest(unittest.TestCase):
         self.assertLessEqual(len(text), bot.EMBED_DESCRIPTION)
         shown = sum(1 for line in text.splitlines() if "variant" in line)
         self.assertTrue(text.endswith(f"…and {300 - shown} more on your dashboard's Billing page"))
-        self.assertTrue(all(line.endswith(tuple("0123456789")) for line in text.splitlines() if "variant" in line))
+        # Every item shown is whole: its name, then its fee line.
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if "variant" in line:
+                self.assertTrue(line.endswith("**") and lines[i + 1].startswith("↳ ") and lines[i + 1].endswith(" fee"), line)
 
 
 class HitSummaryEmbedTest(unittest.TestCase):

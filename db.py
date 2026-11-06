@@ -279,56 +279,80 @@ def _usd(x: float) -> str:
     return f"${x:,.2f}"
 
 
-def _fee_kind_math(kind: str, amount: float, price: float, qty: int) -> tuple[str, str, float]:
-    """(how it's charged, the math for this checkout, what it comes to) for one fee setting."""
+def _fee_kind_math(kind: str, amount: float, price: float, qty: int, rate_label: str) -> tuple[str, list, float]:
+    """(how it's charged, the equation's terms, what it comes to) for one fee setting.
+    Each term is {"value", "label"}: the equation reads value × value = result."""
     qty = max(1, qty or 1)
     if kind == "percent":
         fee = round((price or 0) * amount / 100, 2)
-        return f"{amount:g}% of price", f"{amount:g}% of {_usd(price or 0)} = {_usd(fee)}", fee
+        return f"{amount:g}% of price", [{"value": _usd(price or 0), "label": "price"},
+                                         {"value": f"{amount:g}%", "label": rate_label}], fee
     if kind == "per_item":
         fee = round(amount * qty, 2)
-        return f"{_usd(amount)} per item", f"{_usd(amount)} × {qty} item{'s' if qty != 1 else ''} = {_usd(fee)}", fee
-    return f"{_usd(amount)} per checkout", f"{_usd(amount)} per checkout", round(amount, 2)
+        return f"{_usd(amount)} per item", [{"value": _usd(amount), "label": rate_label},
+                                            {"value": str(qty), "label": "items" if qty != 1 else "item"}], fee
+    return f"{_usd(amount)} per checkout", [{"value": _usd(amount), "label": "per checkout"}], round(amount, 2)
 
 
 def fee_explainer(conn):
     """A function that tells, for a checkout, what its fee was charged by and the math:
-    {"basis": "Target default: 5% of price", "math": "5% of $63.98 = $3.20", "adds": True}.
+    {"basis": "Target default: 5% of price", "terms": [...], "result": "$3.20",
+     "math": "$63.98 × 5% = $3.20", "adds": True, "expected": 3.2}.
     Reads the ACO fees settings once, so explaining a long invoice is cheap. "adds" is False
     when today's settings give a different fee than was charged (they changed since, or an
-    admin edited the fee), so the math shown never silently disagrees with the charge."""
+    admin edited the fee); then "math" is just the amount charged, and "expected" says what
+    today's settings would charge, for admins. Fees set by hand, or by a deleted rule, have no
+    equation ("terms" is empty)."""
     rules = {r.get("id"): r for r in fee_rules(conn)}
     table, types = fees(conn), fee_types(conn)
 
     def explain(row) -> dict:
         source, fee = row["fee_source"] or "", round(row["fee"] or 0, 2)
+        plain = {"terms": [], "result": _usd(fee), "math": _usd(fee), "adds": True, "expected": fee}
         if source == "manual":
-            return {"basis": "Set by hand by an admin", "math": _usd(fee), "adds": True}
+            return {"basis": "Set by hand by an admin", **plain}
         if source.startswith("rule:"):
             rule = rules.get(source[5:])
             if not rule:
-                return {"basis": "A fee rule that has since been deleted", "math": _usd(fee), "adds": True}
+                return {"basis": "A fee rule that has since been deleted", **plain}
             name = f"SKU {rule.get('text')}" if rule.get("match") == "sku" else f"“{rule.get('text')}”"
             where = f" at {rule['retailer']}" if rule.get("retailer") else ""
-            how, math, expected = _fee_kind_math(rule.get("kind") or "flat", float(rule.get("amount") or 0), row["price"], row["qty"])
+            how, terms, expected = _fee_kind_math(rule.get("kind") or "flat", float(rule.get("amount") or 0),
+                                                  row["price"], row["qty"], "fee")
             basis = f"{name} rule{where}: {how}"
         else:
             key = row["retailer"] if row["retailer"] in table else "Other"
-            how, math, expected = _fee_kind_math(types.get(key, "flat"), float(table[key]), row["price"], row["qty"])
+            how, terms, expected = _fee_kind_math(types.get(key, "flat"), float(table[key]), row["price"], row["qty"],
+                                                  f"{key} fee" if key != "Other" else "fee")
             basis = f"{key} default: {how}"
-        adds = abs(expected - fee) < 0.01
-        if not adds:
-            math = f"{math}, but {_usd(fee)} was charged (fee settings changed since, or it was edited)"
-        return {"basis": basis, "math": math, "adds": adds}
+        if abs(expected - fee) >= 0.01:
+            return {"basis": basis, **plain, "adds": False, "expected": expected}
+        math = f"{_usd(fee)} per checkout" if len(terms) == 1 else f"{' × '.join(t['value'] for t in terms)} = {_usd(fee)}"
+        if len(terms) == 2 and terms[1]["label"].startswith("item"):
+            math = f"{terms[0]['value']} × {terms[1]['value']} {terms[1]['label']} = {_usd(fee)}"
+        return {"basis": basis, "terms": terms, "result": _usd(fee), "math": math, "adds": True, "expected": expected}
 
     return explain
 
 
-def fee_bases(rows, explain) -> list[dict]:
-    """An invoice's fees grouped by what charged them, each with its checkouts and subtotal."""
+MEMBER_OTHER_FEES = "Other fees (amount on each line)"
+
+
+def member_basis(basis: str) -> str:
+    """How a fee is charged, worded for members: "Target: 5% of price", not "Target default: ..."."""
+    return basis.replace(" default:", ":", 1)
+
+
+def fee_bases(rows, explain, member: bool = False) -> list[dict]:
+    """An invoice's fees grouped by what charged them, each with its checkouts and subtotal.
+    For members, fees with no equation that adds up (set by hand, a deleted rule, or settings
+    changed since) go under one "Other fees" group instead of naming how admins set them."""
     groups: dict[str, dict] = {}
     for r in rows:
-        basis = explain(r)["basis"]
+        math = explain(r)
+        basis = math["basis"]
+        if member:
+            basis = member_basis(basis) if math["terms"] and math["adds"] else MEMBER_OTHER_FEES
         g = groups.setdefault(basis, {"basis": basis, "checkouts": 0, "total": 0.0})
         g["checkouts"] += 1
         g["total"] = round(g["total"] + r["fee"], 2)

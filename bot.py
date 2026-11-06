@@ -167,20 +167,22 @@ def invoice_embed(conn, inv, reminder: bool = False) -> discord.Embed:
     rows = db.invoice_checkouts(conn, inv["id"])
     amount = round(sum(r["fee"] for r in rows), 2)
     explain = db.fee_explainer(conn)
-    # The same item at the same price and fee reads as one line with its math
-    # ("×2 · 5% of $63.98 = $3.20 each × 14 = $44.80"), so a big drop's invoice fits in one message.
+    # The same item at the same price and fee reads as one entry with its equation
+    # ("$63.98 × 5% = $3.20 × 14 checkouts = $44.80"), so a big drop's invoice fits in one message.
     groups: dict[tuple, list] = {}
     for r in rows:
         groups.setdefault((r["product"] or "Item", r["qty"], r["price"], r["fee"]), []).append(r)
     lines = []
     for (product, qty, _, fee), same in groups.items():
-        math = explain(same[0])["math"]
-        line = f"{product}{f' ×{qty}' if qty > 1 else ''}\n↳ {math}"
+        math = explain(same[0])
+        # The equation in code style so it reads as math; a fee with no equation (set by hand, or
+        # one today's settings no longer give) shows just its amount.
+        eq = f"`{math['math']}`" if math["terms"] and math["adds"] else f"**${fee:,.2f}** fee"
         if len(same) > 1:
-            line += f" each × {len(same)} = **${fee * len(same):,.2f}**"
-        lines.append(line)
+            eq += f" × {len(same)} checkouts = **${fee * len(same):,.2f}**"
+        lines.append(f"**{product}**{f' ×{qty}' if qty > 1 else ''}\n↳ {eq}")
     # What the fees were charged by, from the ACO fees settings, with each one's subtotal.
-    bases = db.fee_bases(rows, explain)
+    bases = db.fee_bases(rows, explain, member=True)
     how = "\n".join(f"• {b['basis']} · {b['checkouts']} checkout{'s' if b['checkouts'] != 1 else ''} · ${b['total']:,.2f}" for b in bases)
     head = (f"You owe **${amount:,.2f}** for {len(rows)} checkout{'s' if len(rows) != 1 else ''}.\n\n"
             f"**How the fee is charged**\n{how}\n\n**Checkouts**")

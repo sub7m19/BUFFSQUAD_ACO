@@ -459,7 +459,9 @@ function renderInvoice(inv) {
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
         <span>${escape(c.retailer)}${c.qty > 1 ? ` · Qty ${c.qty}` : ""}${c.order ? ` · #${escape(c.order)}` : ""} · ${escape(c.date)} · ${money(c.price)}</span>
-        ${c.feeMath ? `<span class="fee-math ${c.feeMath.adds ? "" : "off"}" title="${escape(c.feeMath.basis)}">${escape(c.feeMath.math)}</span>` : ""}
+        ${c.feeMath ? `<span class="fee-math ${c.feeMath.adds ? "" : "off"}" title="${escape(c.feeMath.basis)}">${c.feeMath.adds
+          ? escape(c.feeMath.math)
+          : `Charged ${money(c.fee)}, but today's settings (${escape(c.feeMath.basis)}) give ${money(c.feeMath.expected)}. Members see just the amount.`}</span>` : ""}
       </div>
       <div class="checkout-fee"><strong>${money(c.fee)}</strong></div>
     </li>`).join("") || `<li class="mini-empty">No checkouts left on this invoice.</li>`;

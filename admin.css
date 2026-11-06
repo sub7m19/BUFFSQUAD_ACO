@@ -1151,6 +1151,7 @@ code.revealed {
 
 .invoice-lines .checkout-info .fee-math.off {
   color: var(--red);
+  white-space: normal;
 }
 
 #invoice-void[hidden],

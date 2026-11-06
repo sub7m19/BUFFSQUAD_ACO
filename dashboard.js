@@ -320,6 +320,17 @@ function renderCheckouts() {
 
 // Billing
 
+// The math behind a fee, as an equation members can check: [$63.98 price] × [5% Target fee] = $3.20.
+function feeEquation(c) {
+  const m = c.feeMath;
+  if (!m || !m.terms.length) return "";
+  const term = (t) => `<span class="eq-term"><b>${escape(t.value)}</b><small>${escape(t.label)}</small></span>`;
+  const body = m.terms.length === 1
+    ? `${term(m.terms[0])}`
+    : `${m.terms.map(term).join(`<i class="eq-op" aria-hidden="true">×</i>`)}<i class="eq-op" aria-hidden="true">=</i><b class="eq-result">${escape(m.result)}</b>`;
+  return `<div class="fee-eq" title="${escape(m.basis)}" aria-label="${escape(m.math)}">${body}</div>`;
+}
+
 function renderBilling() {
   const t = totals();
   countTo(byId("billing-due"), t.due, money);
@@ -341,12 +352,33 @@ function renderBilling() {
 
   const billable = checkouts.filter(charged).sort((a, b) => a.paid - b.paid);
   byId("invoice-count").textContent = t.dueCount ? `${t.dueCount} unpaid` : "All settled";
+
+  // How the unpaid fees are worked out, from the ACO fee settings: one line per setting, with its subtotal.
+  // Fees with no equation go under "Other fees", so the lines always add up to the balance due.
+  const bases = new Map();
+  billable.filter((c) => !c.paid).forEach((c) => {
+    const key = c.feeMath ? c.feeMath.basis : "Other fees";
+    const b = bases.get(key) || { n: 0, total: 0 };
+    bases.set(key, { n: b.n + 1, total: b.total + c.fee });
+  });
+  if (bases.has("Other fees")) {  // keep it last
+    const other = bases.get("Other fees");
+    bases.delete("Other fees");
+    bases.set("Other fees", other);
+  }
+  const anyMath = billable.some((c) => !c.paid && c.feeMath);
+  byId("fee-basis").hidden = !anyMath;
+  byId("fee-basis-list").innerHTML = anyMath ? [...bases].map(([basis, b]) =>
+    `<li><span>${escape(basis)}</span><b>${plural(b.n, "fee")} · ${money(b.total)}</b></li>`).join("")
+    + (bases.size > 1 ? `<li class="fee-basis-total"><span>Total due</span><b>${money([...bases.values()].reduce((s, b) => s + b.total, 0))}</b></li>` : "") : "";
+
   byId("invoice-list").innerHTML = billable.map((c) => `
     <li>
       <span class="avatar">${escape(initials(c.retailer))}</span>
       <div class="checkout-info">
         <strong>${escape(c.product)}</strong>
         <span>${c.invoice ? `Invoice ${escape(c.invoice)} · ` : ""}${c.order ? `#${escape(c.order)} · ` : ""}${escape(c.date)} · ${money(c.price)} retail</span>
+        ${feeEquation(c)}
       </div>
       <div class="checkout-fee">
         <strong>${money(c.fee)}</strong>

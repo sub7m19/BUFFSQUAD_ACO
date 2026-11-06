@@ -535,12 +535,23 @@ def member_payload(conn, user) -> dict:
         "text": f"{'Checked out' if r['result'] == 'hit' else 'Missed'} {r['product'] or 'an item'}",
         "meta": f"{r['retailer']} · Qty {r['qty']}", "at": r["created_at"] * 1000,
     } for r in rows[:8]]
+    explain = db.fee_explainer(conn)
+
+    def member_checkout(r) -> dict:
+        data = db.checkout_json(r, member_view=True)
+        math = explain(r)
+        # The equation behind the fee, for the Billing page. Only when it comes from a fee setting and
+        # still adds up: a fee set by hand, or one the settings no longer give, shows just its amount.
+        if math["terms"] and math["adds"]:
+            data["feeMath"] = {**{k: math[k] for k in ("terms", "result", "math")}, "basis": db.member_basis(math["basis"])}
+        return data
+
     return {
         "user": {"name": user["display_name"] or user["username"], "avatar": user["avatar"], "isAdmin": bool(user["is_admin"]),
                  "isOwner": is_owner(user)},
         "settings": db.user_settings(user),
         "saved": db.saved_secrets(conn, user["id"]),
-        "checkouts": [db.checkout_json(r, member_view=True) for r in hits],
+        "checkouts": [member_checkout(r) for r in hits],
         "declined": len(rows) - len(hits),
         "feed": feed,
         "invoices": [{k: v for k, v in db.invoice_json(conn, i).items() if k in ("number", "status", "amount", "checkouts", "at", "paidAt")}

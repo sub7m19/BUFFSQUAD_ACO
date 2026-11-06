@@ -4409,3 +4409,87 @@ a.tile:hover {
 .pay-how p:last-child:empty {
   display: none;
 }
+
+/* How your fee is worked out: the fee settings behind the unpaid fees, laid out like How to pay. */
+.fee-basis {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.fee-basis[hidden] {
+  display: none;
+}
+
+.fee-basis ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fee-basis li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--soft);
+  font-size: 0.86rem;
+}
+
+.fee-basis b {
+  flex: 0 0 auto;
+  color: var(--white);
+  font-variant-numeric: tabular-nums;
+}
+
+.fee-basis .fee-basis-total {
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  color: var(--white);
+  font-weight: 700;
+}
+
+/* A fee's equation on the Billing page: [$63.98 price] × [5% Target fee] = $3.20 */
+.checkout-info .fee-eq {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.checkout-info .fee-eq .eq-term {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid rgba(35, 206, 217, 0.3);
+  border-radius: 6px;
+  background: rgba(35, 206, 217, 0.08);
+  color: var(--white);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.checkout-info .fee-eq .eq-term b {
+  font-variant-numeric: tabular-nums;
+}
+
+.checkout-info .fee-eq .eq-term small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.checkout-info .fee-eq .eq-op {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.checkout-info .fee-eq .eq-result {
+  color: var(--cyan);
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+}

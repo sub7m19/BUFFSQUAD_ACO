@@ -335,7 +335,21 @@ class ServerTest(ServerCase):
         # The invoice shows what charged each fee and the math; these fees were set by hand.
         _, detail, _ = admin.request("GET", f"/api/admin/invoices/{inv['id']}")
         self.assertEqual(detail["feeBases"], [{"basis": "Set by hand by an admin", "checkouts": 3, "total": 30}])
-        self.assertEqual(detail["list"][0]["feeMath"], {"basis": "Set by hand by an admin", "math": "$10.00", "adds": True})
+        self.assertEqual((detail["list"][0]["feeMath"]["basis"], detail["list"][0]["feeMath"]["terms"]), ("Set by hand by an admin", []))
+
+        # Members' Billing page gets the equation for fees from the fee settings, and nothing for ones set by hand.
+        with db.transaction() as conn:
+            db.kv_set(conn, "fees", {"Target": 5})
+            db.kv_set(conn, "fee_types", {"Target": "percent"})
+            eq_id = db.record_checkout(conn, {"status": "success", "product": "Fee eq item", "retailer": "Target", "price": 63.98},
+                                       user_id=ivy_id, message_key="inveq:0", notify=False)
+        mine = {c["id"]: c for c in ivy.request("GET", "/api/me")[1]["checkouts"]}
+        self.assertEqual(mine[eq_id]["feeMath"], {"basis": "Target: 5% of price", "result": "$3.20", "math": "$63.98 × 5% = $3.20",
+                                                  "terms": [{"value": "$63.98", "label": "price"}, {"value": "5%", "label": "Target fee"}]})
+        self.assertNotIn("feeMath", mine[ids[1]])
+        with db.transaction() as conn:
+            conn.execute("DELETE FROM checkouts WHERE id = ?", (eq_id,))
+            conn.execute("DELETE FROM kv WHERE key IN ('fees', 'fee_types')")
 
         # A canceled checkout comes off the invoice.
         admin.request("PATCH", f"/api/admin/checkouts/{ids[0]}", {"stage": "canceled"})
