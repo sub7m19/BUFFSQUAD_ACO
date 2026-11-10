@@ -291,18 +291,20 @@ def _run(job: dict, key: str) -> None:
     try:
         aycd(key, "GET", "/api/v1/user/verify")
         _scrape(job, key)
-        job["status"] = "stopped" if job["_stop"].is_set() else "done"
-        job["message"] = "Stopped." if job["_stop"].is_set() else "Done."
+        status, message = ("stopped", "Stopped.") if job["_stop"].is_set() else ("done", "Done.")
     except AycdError as e:
-        job["status"], job["message"] = "failed", str(e)
+        status, message = "failed", str(e)
     except Exception as e:  # noqa: BLE001 - shown to the admin rather than lost in a thread
-        job["status"], job["message"] = "failed", f"The check stopped on an error: {e}"
-    job["finishedAt"] = int(time.time() * 1000)
+        status, message = "failed", f"The check stopped on an error: {e}"
+    # Save the finished run first and flip the status last, so anyone who sees it finished
+    # also sees its finish time and finds it saved.
+    job["finishedAt"], job["message"] = int(time.time() * 1000), message
     try:
         with db.transaction() as conn:
-            db.kv_set(conn, kv_key(job["userId"]), public(job))
+            db.kv_set(conn, kv_key(job["userId"]), public(job) | {"status": status})
     except Exception:  # noqa: BLE001
         pass
+    job["status"] = status
 
 
 def _scrape(job: dict, key: str) -> None:
