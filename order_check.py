@@ -104,7 +104,10 @@ def numbers(text) -> set[str]:
 
 def site_word(retailer: str) -> str:
     """The word that's in the retailer's sender address."""
-    r = (retailer or "").lower()
+    r = (retailer or "").lower().strip()
+    if r in ("", "unknown"):
+        # The bot couldn't tell the store. No sender to look for (a "from includes unknown" filter never matches).
+        return ""
     if "target" in r:
         return "target"
     if "pokemon" in r or "pokémon" in r:
@@ -118,8 +121,9 @@ def mail_filters(c: dict, kind: str) -> list[dict]:
         # Target puts the order number in every subject, so require it: AYCD can't hand back another order.
         # Only "includes" filters: with "excludes" ones added, AYCD never found Target confirmations that were
         # in the mailbox. So the order search takes any email with the number, and outcome() reads its subject.
-        filters = [{"target": "subject", "comparator": "includes", "value": digits},
-                   {"target": "from", "comparator": "includes", "value": "target"}]
+        filters = [{"target": "subject", "comparator": "includes", "value": digits}]
+        if site_word(c["retailer"]):
+            filters.append({"target": "from", "comparator": "includes", "value": site_word(c["retailer"])})
         if kind == "followup":
             first, *rest = FOLLOWUP_WORDS
             filters.append({"target": "subject", "comparator": "includes", "value": first,
@@ -139,7 +143,9 @@ def mail_filters(c: dict, kind: str) -> list[dict]:
 
 
 def order_in_subject(c: dict) -> bool:
-    return bool(numbers(c["order"])) and site_word(c["retailer"]) == "target"
+    """Search by the order number in the subject: Target, and any checkout whose store the bot couldn't tell
+    (the order number alone is specific enough, and a loose search with no sender would match anything)."""
+    return bool(numbers(c["order"])) and site_word(c["retailer"]) in ("target", "")
 
 
 def build_task(c: dict, kind: str, group: str, template_id: str, timeout: int) -> dict:

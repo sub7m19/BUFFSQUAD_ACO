@@ -207,6 +207,16 @@ class OrderCheckTest(ServerCase):
         self.assertEqual(order_check.outcome(c, canceled, shipped, [])["outcome"], "canceled")
         self.assertEqual(order_check.outcome(c, confirmation, shipped, [])["outcome"], "shipped")
 
+    def test_checkout_with_no_retailer_searches_by_order_number(self):
+        # The bot couldn't tell the store: never ask AYCD for mail "from unknown", which can't match.
+        for retailer in ("Unknown", ""):
+            c = {"order": "102003869997105", "retailer": retailer, "email": "a@outlook.com", "createdAt": 0}
+            for kind in ("order", "followup"):
+                filters = order_check.mail_filters(c, kind)
+                self.assertEqual(filters[0], {"target": "subject", "comparator": "includes", "value": "102003869997105"})
+                self.assertFalse([f for f in filters if f["target"] == "from"])
+                self.assertFalse([f for f in filters if f.get("optional")])
+
     def test_aycd_timing_out_means_no_email(self):
         # AYCD reports a search that found nothing as an error saying it timed out.
         c = {"order": "912000000000005", "retailer": "Target"}
