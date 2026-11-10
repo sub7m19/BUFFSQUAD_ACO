@@ -23,14 +23,21 @@ from urllib.request import Request, urlopen
 import db
 
 BASE_URL = "https://inbox-api.aycd.io"
-# A search that finds its email comes back in seconds; one with nothing to find runs until this timeout and
-# holds its slot the whole time. The emails are already in the mailbox, so a minute is plenty.
-TASK_TIMEOUT = 60          # seconds AYCD searches the mailbox per task
+# A search that finds its email comes back in seconds; one with nothing to find runs until its timeout and
+# holds its slot the whole time. AYCD Inbox has to open a connection to each mail account it searches, and with
+# many accounts at once that can take a while, so a search can time out before it reaches an email that's there.
+# So the check runs twice: a quick first pass over everything, then a slow, patient second pass over only the
+# checkouts the first pass found nothing for.
+FIRST_PASS = {"timeout": 60, "active": 20}
+SECOND_PASS = {"timeout": 180, "active": 8}     # 180s is what proxy_webhook settled on
 DEADLINE_GRACE = 60        # extra wait for AYCD to report a task done before we give up on it
-MAX_ACTIVE = 30            # tasks running at once on one member's AYCD Inbox (proxy_webhook runs 30)
-POLL_SECONDS = 1.0          # AYCD's docs allow up to 60 completed-task polls a minute
+POLL_SECONDS = 1.0         # AYCD's docs allow up to 60 completed-task polls a minute
 MAX_RUNNING_JOBS = 3       # checks running at once across all members
-RECEIVED_BUFFER = 120      # look for emails from a bit before the webhook, in case the bot posted late
+# How far before the checkout to look for its emails. The checkout time is when the webhook was posted, which
+# can be after the email came (and a checkout the bot caught up on later, or added by hand, is later still).
+# With the order number in the subject (Target) nothing else can match, so look back a whole day.
+LOOKBACK_BY_ORDER_NUMBER = 86400
+LOOKBACK_LOOSE = 1800
 
 ORDER_NUMBER_RE = re.compile(r"\d{8,}")
 FOLLOWUP_WORDS = ("cancel", "ship", "arriv", "deliver")
@@ -107,7 +114,7 @@ def site_word(retailer: str) -> str:
 
 def mail_filters(c: dict, kind: str) -> list[dict]:
     digits = next(iter(sorted(numbers(c["order"]), key=len, reverse=True)), "")
-    if digits and site_word(c["retailer"]) == "target":
+    if order_in_subject(c):
         # Target puts the order number in every subject, so require it: AYCD can't hand back another order.
         filters = [{"target": "subject", "comparator": "includes", "value": digits}]
         if kind == "followup":
@@ -130,10 +137,15 @@ def mail_filters(c: dict, kind: str) -> list[dict]:
     return filters
 
 
-def build_task(c: dict, kind: str, group: str, template_id: str) -> dict:
+def order_in_subject(c: dict) -> bool:
+    return bool(numbers(c["order"])) and site_word(c["retailer"]) == "target"
+
+
+def build_task(c: dict, kind: str, group: str, template_id: str, timeout: int) -> dict:
+    lookback = LOOKBACK_BY_ORDER_NUMBER if order_in_subject(c) else LOOKBACK_LOOSE
     task = {
-        "group": group, "timeout": TASK_TIMEOUT, "email": c["email"],
-        "receivedAt": max(0, c["createdAt"] - RECEIVED_BUFFER),
+        "group": group, "timeout": timeout, "email": c["email"],
+        "receivedAt": max(0, c.get("placedAt", c["createdAt"]) - lookback),
         "mailFilters": mail_filters(c, kind),
         "mailElements": FOLLOWUP_ELEMENTS if kind == "followup" else ORDER_ELEMENTS,
     }
@@ -290,7 +302,13 @@ def stop(user_id: int) -> bool:
 def _run(job: dict, key: str) -> None:
     try:
         aycd(key, "GET", "/api/v1/user/verify")
-        _scrape(job, key)
+        everything = list(range(len(job["results"])))
+        _scrape(job, key, everything, FIRST_PASS, "Searching inbox")
+        retry = [i for i in everything if job["results"][i].get("outcome") == "not_found"]
+        if retry and not job["_stop"].is_set():
+            job["secondLook"] = len(retry)
+            job["tasks"]["total"] += len(retry) * len(kinds(job["options"]))
+            _scrape(job, key, retry, SECOND_PASS, f"Second, slower look at {len(retry)} with no email")
         status, message = ("stopped", "Stopped.") if job["_stop"].is_set() else ("done", "Done.")
     except AycdError as e:
         status, message = "failed", str(e)
@@ -307,12 +325,13 @@ def _run(job: dict, key: str) -> None:
     job["status"] = status
 
 
-def _scrape(job: dict, key: str) -> None:
+def _scrape(job: dict, key: str, indices: list[int], settings: dict, label: str) -> None:
     group = quote(f"buffsquad-check-{job['id']}", safe="")
     template_id = job["options"].get("templateId") or ""
+    timeout, max_active = settings["timeout"], settings["active"]
     wanted = kinds(job["options"])
-    queue = deque((i, kind) for i in range(len(job["results"])) for kind in wanted)
-    began: dict[int, float] = {}          # result index -> when its first search started
+    queue = deque((i, kind) for i in indices for kind in wanted)
+    began: dict[int, float] = {}          # result index -> when its first search in this pass started
     responses: dict[int, dict] = {}       # result index -> {"order": resp, "followup": resp}
     create_errors: dict[int, list] = {}
     pending: dict[str, tuple[int, str, float]] = {}   # task id -> (index, kind, deadline)
@@ -325,34 +344,35 @@ def _scrape(job: dict, key: str) -> None:
         if all(k in got for k in wanted):
             c = job["results"][i]
             c.update(outcome(c, got["order"], got.get("followup"), create_errors.get(i, [])))
-            c["secs"] = round(time.monotonic() - began.get(i, time.monotonic()))
+            c["secs"] = c.get("secs", 0) + round(time.monotonic() - began.get(i, time.monotonic()))
 
     while queue or pending:
         if job["_stop"].is_set():
             return
-        while queue and len(pending) < MAX_ACTIVE:
+        while queue and len(pending) < max_active:
             i, kind = queue.popleft()
             began.setdefault(i, time.monotonic())
             try:
-                resp = aycd(key, "POST", "/api/v1/tasks/mail/create", build_task(job["results"][i], kind, group, template_id))
+                task = build_task(job["results"][i], kind, group, template_id, timeout)
+                resp = aycd(key, "POST", "/api/v1/tasks/mail/create", task)
                 task_id = resp.get("id") if isinstance(resp, dict) else None
                 if not task_id:
                     raise AycdError(f"AYCD didn't start the search: {str(resp)[:150]}")
-                pending[str(task_id)] = (i, kind, time.monotonic() + TASK_TIMEOUT + DEADLINE_GRACE)
+                pending[str(task_id)] = (i, kind, time.monotonic() + timeout + DEADLINE_GRACE)
             except AycdError as e:
                 if "didn't accept" in str(e) or "rate limiting" in str(e):
                     raise
                 create_errors.setdefault(i, []).append(str(e))
                 settle(i, kind, {"status": "error"})
         tasks["active"] = len(pending)
-        job["message"] = f"Searching inbox: {tasks['settled']} of {tasks['total']} searches done"
+        job["message"] = f"{label}: {tasks['settled']} of {tasks['total']} searches done"
         if not pending:
             continue
         time.sleep(POLL_SECONDS)
         try:
             done = aycd(key, "GET", f"/api/v1/tasks/completed?group={group}")
         except AycdError as e:
-            job["message"] = f"{e} Retrying…"
+            job["message"] = f"{e} Retrying..."
             continue
         done = done.get("tasks", []) if isinstance(done, dict) else done if isinstance(done, list) else []
         for task in done:

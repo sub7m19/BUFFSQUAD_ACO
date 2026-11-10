@@ -581,6 +581,15 @@ def member_row(conn, r) -> dict:
     }
 
 
+def placed_at(row) -> int:
+    """When a checkout's webhook was posted (seconds), from its Discord message id, which holds the time.
+    A checkout the bot caught up on after being offline was logged later than that. Hand-added ones have no message."""
+    message_id = (row["message_key"] or "").partition(":")[0]
+    if message_id.isdigit():
+        return min(row["created_at"], ((int(message_id) >> 22) + 1420070400000) // 1000)
+    return row["created_at"]
+
+
 def plural_s(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
@@ -1257,7 +1266,8 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
                                if rows else "No checkouts in that time.")
             checkouts = [{"id": r["id"], "product": r["product"] or "Unknown item", "retailer": r["retailer"] or "Unknown",
                           "order": r["order_no"].strip(), "email": r["email"].strip(), "qty": r["qty"], "price": r["price"],
-                          "stage": r["stage"], "createdAt": r["created_at"], "at": r["created_at"] * 1000} for r in ready]
+                          "stage": r["stage"], "createdAt": r["created_at"], "placedAt": placed_at(r),
+                          "at": r["created_at"] * 1000} for r in ready]
             options = {"days": days, "retailer": retailer, "templateId": template_id, "skipped": len(rows) - len(ready),
                        "quick": bool(body.get("quick"))}
             try:

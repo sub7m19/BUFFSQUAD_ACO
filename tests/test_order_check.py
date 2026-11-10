@@ -145,6 +145,9 @@ class OrderCheckTest(ServerCase):
         _, log, _ = admin.request("GET", "/api/admin/audit")
         self.assertTrue(any(r["action"] == "order_check.run" for r in log["rows"]))
         self.assertTrue(all(isinstance(r["secs"], int) for r in run["results"]))
+        # Only the one with nothing found got a second, slower look.
+        self.assertEqual(run["secondLook"], 1)
+        self.assertEqual(run["tasks"]["total"], 4 * 2 + 1 * 2)
         self.assertGreaterEqual(run["finishedAt"], run["startedAt"])
 
         # Confirmations only: one search per checkout, so the canceled order just reads as confirmed.
@@ -175,6 +178,20 @@ class OrderCheckTest(ServerCase):
         c = {"order": "912000000000005", "retailer": "Target"}
         other = {"status": "success", "results": {"subject": "Here's your order #:912000000000001."}}
         self.assertEqual(order_check.outcome(c, other, {"status": "timeout"}, [])["outcome"], "mismatch")
+
+    def test_search_window_starts_before_the_webhook(self):
+        # The bot caught up on this checkout an hour late: search from the Discord message's time, not the log time.
+        posted = 1794290000
+        message_id = (posted * 1000 - 1420070400000) << 22
+        row = {"message_key": f"{message_id}:0", "created_at": posted + 3600}
+        import main
+        self.assertEqual(main.placed_at(row), posted)
+        self.assertEqual(main.placed_at({"message_key": None, "created_at": posted}), posted)
+        target = {"order": "912000000000001", "retailer": "Target", "email": "a@x.com", "createdAt": posted + 3600, "placedAt": posted}
+        task = order_check.build_task(target, "order", "g", "", 60)
+        self.assertEqual(task["receivedAt"], posted - order_check.LOOKBACK_BY_ORDER_NUMBER)
+        loose = {**target, "retailer": "Pokemon Center"}
+        self.assertEqual(order_check.build_task(loose, "order", "g", "", 60)["receivedAt"], posted - order_check.LOOKBACK_LOOSE)
 
     def test_aycd_timing_out_means_no_email(self):
         # AYCD reports a search that found nothing as an error saying it timed out.

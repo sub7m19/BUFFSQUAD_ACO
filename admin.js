@@ -1653,7 +1653,7 @@ function renderOrderRun() {
   byId("order-check-failed").textContent = run.message;
   const o = run.options || {};
   byId("order-check-meta").textContent = `${plural(run.results.length, "checkout")} from the last ${plural(o.days, "day")}${o.retailer ? ` at ${o.retailer}` : ""}`
-    + `${o.quick ? " · confirmations only" : ""}${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}`
+    + `${o.quick ? " · confirmations only" : ""}${run.secondLook ? ` · second look at ${run.secondLook} with no email` : ""}${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}`
     + `${busy ? "" : ` · took ${duration(runSecs(run))}`}${run.status === "stopped" ? " · stopped" : ""}`;
   tickOrderTimer();
   byId("order-check-tiles").innerHTML = orderTiles(run);
