@@ -1222,3 +1222,76 @@ code.revealed {
     display: none;
   }
 }
+
+/* Order check (test) */
+.order-check-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.2fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.order-check-form label small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.order-check-form .button {
+  min-height: 44px;
+}
+
+.order-check-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+  color: var(--soft);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.order-check-progress[hidden] {
+  display: none;
+}
+
+.order-check-bar {
+  flex: 1 1 220px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.order-check-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--cyan);
+  transition: width 0.4s ease;
+}
+
+.order-check-tabs {
+  margin: 14px 0 4px;
+}
+
+.order-check-row {
+  cursor: default;
+}
+
+.order-check-row .checkout-info span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1020px) {
+  .order-check-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .order-check-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

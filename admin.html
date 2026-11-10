@@ -64,6 +64,7 @@
         <a href="#fees" data-route="fees"><svg class="icon"><use href="#i-card"/></svg><span>Fees</span><b class="nav-badge due" id="nav-fees" hidden></b></a>
         <a href="#channels" data-route="channels"><svg class="icon"><use href="#i-hash"/></svg><span>Channels</span><b class="nav-badge due" id="nav-channels" hidden></b></a>
         <a href="#members" data-route="members"><svg class="icon"><use href="#i-user"/></svg><span>Members</span></a>
+        <a href="#orders" data-route="orders"><svg class="icon"><use href="#i-inbox"/></svg><span>Order check</span></a>
         <a href="#export" data-route="export"><svg class="icon"><use href="#i-download"/></svg><span>Export</span></a>
         <a href="#settings" data-route="settings"><svg class="icon"><use href="#i-gear"/></svg><span>Settings</span></a>
         <a href="#activity" data-route="activity" id="nav-activity" hidden><svg class="icon"><use href="#i-list"/></svg><span>Master log</span></a>
@@ -278,6 +279,74 @@
             <span class="empty-icon"><svg class="icon"><use href="#i-user"/></svg></span>
             <strong>No members yet</strong>
             <span>Members show up after they sign in to the dashboard with Discord.</span>
+          </div>
+        </section>
+      </section>
+
+      <!-- Order check (test) -->
+      <section class="view" data-view="orders" aria-labelledby="orders-title" hidden>
+        <header class="page-head">
+          <div>
+            <p class="eyebrow">Test</p>
+            <h1 id="orders-title">Order check</h1>
+            <p class="page-sub">Search a member's inbox with their AYCD Inbox key for each checkout's order email, to see which orders actually stuck. Checkouts aren't changed.</p>
+          </div>
+        </header>
+
+        <section class="panel admin-form" aria-labelledby="order-check-form-title">
+          <h2 class="label" id="order-check-form-title">Check a member's orders</h2>
+          <form id="order-check-form" class="order-check-form">
+            <label>
+              Member
+              <select name="userId" id="order-check-member"></select>
+            </label>
+            <label>
+              Checkouts from
+              <select name="days">
+                <option value="1">Last 24 hours</option>
+                <option value="3">Last 3 days</option>
+                <option value="7" selected>Last 7 days</option>
+                <option value="14">Last 14 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="60">Last 60 days</option>
+              </select>
+            </label>
+            <label>
+              Retailer
+              <select name="retailer">
+                <option value="">All retailers</option>
+                <option>Target</option>
+                <option>Pokemon Center</option>
+              </select>
+            </label>
+            <label>
+              <span>AYCD template <small>optional</small></span>
+              <input name="templateId" maxlength="80" autocomplete="off" placeholder="For iCloud aliases forwarded to Gmail">
+            </label>
+            <button class="button primary" type="submit" id="order-check-run"><svg class="icon"><use href="#i-search"/></svg>Check orders</button>
+          </form>
+          <p class="field-error" id="order-check-error" hidden></p>
+          <p class="field-hint">Only members who saved an AYCD Inbox key are listed. Their <b>AYCD Inbox app has to be open</b> while the check runs: AYCD does the searching on their computer. Each checkout gets two searches, the order confirmation and any cancel or shipping email, and an email only counts if it has that checkout's order number. Every check is logged.</p>
+        </section>
+
+        <section class="panel" id="order-check-results" aria-labelledby="order-check-results-title" hidden>
+          <div class="panel-head">
+            <h2 class="label" id="order-check-results-title">Results</h2>
+            <span class="panel-count" id="order-check-meta"></span>
+          </div>
+          <div class="order-check-progress" id="order-check-progress" hidden>
+            <div class="order-check-bar"><span id="order-check-bar"></span></div>
+            <span id="order-check-message"></span>
+            <button class="button ghost" type="button" id="order-check-stop"><svg class="icon"><use href="#i-x"/></svg>Stop</button>
+          </div>
+          <p class="field-error" id="order-check-failed" hidden></p>
+          <div class="admin-tiles" id="order-check-tiles"></div>
+          <div class="segment tabs admin-tabs order-check-tabs" role="group" aria-label="Show" id="order-check-filter"></div>
+          <ul class="checkout-list" id="order-check-list"></ul>
+          <div class="empty" id="order-check-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-inbox"/></svg></span>
+            <strong>Nothing here</strong>
+            <span>No checkouts have that result.</span>
           </div>
         </section>
       </section>

@@ -16,7 +16,7 @@ const DM = {
   off: ["DMs off", "paused"],
 };
 
-const ROUTES = ["overview", "checkouts", "fees", "channels", "members", "export", "settings", "activity"];
+const ROUTES = ["overview", "checkouts", "fees", "channels", "members", "orders", "export", "settings", "activity"];
 
 const data = { members: [], checkouts: [], settings: null };
 const filters = { view: "", search: "", memberSearch: "", auditKind: "admin", auditWho: "" };
@@ -1486,6 +1486,7 @@ const ACTIONS = {
   "invoice.void": "Voided an invoice", "invoice.resend": "Resent an invoice", "settings.pay": "Changed how members pay",
   "blocked.export": "Blocked: downloading an admin's profiles", "blocked.reveal": "Blocked: revealing an admin's details",
   "blocked.disable": "Blocked: turning an admin on or off",
+  "order_check.run": "Checked a member's orders", "blocked.order_check": "Blocked: checking an admin's orders",
 };
 
 const ROLES = { owner: "Owner", admin: "Admin" };
@@ -1540,6 +1541,165 @@ byId("app-version").addEventListener("click", (e) => {
   if (e.currentTarget.classList.contains("fresh")) location.reload();
 });
 
+// Order check (test): search a member's AYCD Inbox for each checkout's order email
+
+const ORDER_OUTCOMES = {
+  confirmed: { label: "Confirmed", icon: "check", tone: "cyan" },
+  shipped: { label: "Shipped", icon: "truck", tone: "violet" },
+  delivered: { label: "Delivered", icon: "box", tone: "green" },
+  canceled: { label: "Canceled", icon: "x", tone: "red" },
+  not_found: { label: "No email", icon: "search", tone: "peach" },
+  mismatch: { label: "Other order", icon: "bolt", tone: "peach" },
+  error: { label: "Error", icon: "x", tone: "red" },
+};
+const STUCK = ["confirmed", "shipped", "delivered"];
+const orderCheck = { members: [], run: null, filter: "all", timer: null };
+const orderForm = byId("order-check-form");
+
+async function loadOrderCheck() {
+  const { members } = await api("GET", "/api/admin/order-check");
+  orderCheck.members = members;
+  const select = byId("order-check-member");
+  const keep = select.value;
+  select.innerHTML = members.length
+    ? members.map((m) => `<option value="${m.id}">${escape(m.name)} (@${escape(m.username)}) · ${plural(m.checkable, "checkout")}${m.running ? " · checking…" : ""}</option>`).join("")
+    : `<option value="">No members with an AYCD Inbox key</option>`;
+  if (members.some((m) => String(m.id) === keep)) select.value = keep;
+  byId("order-check-run").disabled = !members.length;
+  if (members.length) await loadOrderRun();
+  else {
+    orderCheck.run = null;
+    renderOrderRun();
+  }
+}
+
+async function loadOrderRun() {
+  const id = byId("order-check-member").value;
+  if (!id) return;
+  const { run } = await api("GET", `/api/admin/order-check/${id}`);
+  if (byId("order-check-member").value !== id) return;
+  orderCheck.run = run;
+  renderOrderRun();
+  clearTimeout(orderCheck.timer);
+  // While a check runs, follow it every 2 seconds (only on this page).
+  if (run && run.status === "running" && current() === "orders") {
+    orderCheck.timer = setTimeout(() => loadOrderRun().catch((err) => notify(err.message)), 2000);
+  }
+}
+
+function orderTiles(run) {
+  const { counts, done, stuck, rate } = run.summary;
+  const busy = run.status === "running";
+  const other = counts.mismatch + counts.error;
+  return [
+    ["inbox", "cyan", "Checked", `${done} / ${run.results.length}`, busy ? "Still searching" : "Checkouts searched"],
+    ["check", "green", "Stuck", stuck, rate === null ? "—" : `${rate}% of checked`],
+    ["truck", "violet", "Shipped or delivered", counts.shipped + counts.delivered, `${counts.confirmed} confirmed, not shipped yet`],
+    ["x", counts.canceled ? "peach" : "green", "Canceled", counts.canceled, counts.canceled ? "Retailer canceled the order" : "None canceled"],
+    ["search", counts.not_found ? "peach" : "green", "No email", counts.not_found, "Nothing with that order #"],
+    ["bolt", other ? "peach" : "green", "Other / errors", other, `${counts.mismatch} other order, ${counts.error} error`],
+  ].map(([ic, tone, label, value, note]) => `
+    <div class="tile">
+      <span class="tile-icon ${tone}">${icon(ic)}</span>
+      <div><small>${label}</small><strong>${escape(value)}</strong><span class="tile-note">${escape(note)}</span></div>
+    </div>`).join("");
+}
+
+function orderRow(r, busy) {
+  const out = ORDER_OUTCOMES[r.outcome];
+  const pill = out
+    ? `<span class="stage ${out.tone}">${icon(out.icon)}${out.label}</span>`
+    : `<span class="status paused">${busy ? "Searching…" : "Not checked"}</span>`;
+  // The email says canceled but we have it as a live order, or the other way round.
+  const differs = out && (STUCK.includes(r.outcome) || r.outcome === "canceled") && (r.outcome === "canceled") !== (r.stage === "canceled");
+  const recorded = STAGES[r.stage] ? STAGES[r.stage].label : r.stage;
+  const detail = r.error ? `<b class="unmatched">${escape(r.error)}</b>`
+    : r.subject ? `“${escape(r.subject)}”${r.emailTotal ? ` · email total ${money(r.emailTotal)}` : ""}${r.tracking ? ` · tracking ${escape(r.tracking)}` : ""}`
+    : r.outcome === "not_found" ? "No confirmation, cancel or shipping email with this order #" : "";
+  return `
+    <li class="admin-row order-check-row">
+      <span class="avatar">${escape(initials(r.retailer))}</span>
+      <div class="checkout-info">
+        <strong>${escape(r.product)}</strong>
+        <span>${escape(r.retailer)}${r.qty > 1 ? ` · Qty ${r.qty}` : ""} · #${escape(r.order)} · ${escape(r.email)} · ${when(r.at)}</span>
+        ${detail ? `<span>${detail}</span>` : ""}
+        ${differs ? `<span><b class="unmatched">Marked ${escape(recorded)} here</b></span>` : ""}
+      </div>
+      ${pill}
+    </li>`;
+}
+
+function renderOrderRun() {
+  const run = orderCheck.run;
+  byId("order-check-results").hidden = !run;
+  byId("order-check-run").disabled = !orderCheck.members.length || Boolean(run && run.status === "running");
+  if (!run) return;
+  const busy = run.status === "running";
+  const { counts, stuck } = run.summary;
+  byId("order-check-progress").hidden = !busy;
+  byId("order-check-bar").style.width = `${run.tasks.total ? Math.round((run.tasks.settled / run.tasks.total) * 100) : 0}%`;
+  byId("order-check-message").textContent = run.message;
+  byId("order-check-failed").hidden = run.status !== "failed";
+  byId("order-check-failed").textContent = run.message;
+  const o = run.options || {};
+  byId("order-check-meta").textContent = `${plural(run.results.length, "checkout")} from the last ${plural(o.days, "day")}${o.retailer ? ` at ${o.retailer}` : ""}`
+    + `${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}${run.status === "stopped" ? " · stopped" : ""}`;
+  byId("order-check-tiles").innerHTML = orderTiles(run);
+
+  const tabs = [["all", "All", run.results.length], ["stuck", "Stuck", stuck], ["canceled", "Canceled", counts.canceled],
+                ["not_found", "No email", counts.not_found], ["other", "Other / errors", counts.mismatch + counts.error]];
+  byId("order-check-filter").innerHTML = tabs.map(([v, label, n]) =>
+    `<button type="button" data-order-filter="${v}" aria-pressed="${orderCheck.filter === v}">${label} <b>${n}</b></button>`).join("");
+  const show = {
+    all: () => true, stuck: (r) => STUCK.includes(r.outcome), canceled: (r) => r.outcome === "canceled",
+    not_found: (r) => r.outcome === "not_found", other: (r) => r.outcome === "mismatch" || r.outcome === "error",
+  }[orderCheck.filter];
+  const list = run.results.filter(show);
+  byId("order-check-list").innerHTML = list.map((r) => orderRow(r, busy)).join("");
+  byId("order-check-empty").hidden = list.length > 0;
+}
+
+orderForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = byId("order-check-error");
+  err.hidden = true;
+  const f = orderForm.elements;
+  byId("order-check-run").disabled = true;
+  try {
+    const { run } = await api("POST", `/api/admin/order-check/${f.userId.value}`, {
+      days: Number(f.days.value), retailer: f.retailer.value, templateId: f.templateId.value.trim(),
+    });
+    orderCheck.run = run;
+    orderCheck.filter = "all";
+    renderOrderRun();
+    await loadOrderRun();
+  } catch (error) {
+    err.textContent = error.message;
+    err.hidden = false;
+    renderOrderRun();
+  }
+});
+
+byId("order-check-member").addEventListener("change", () => {
+  orderCheck.run = null;
+  orderCheck.filter = "all";
+  byId("order-check-error").hidden = true;
+  renderOrderRun();
+  loadOrderRun().catch((err) => notify(err.message));
+});
+
+byId("order-check-stop").addEventListener("click", async () => {
+  await api("POST", `/api/admin/order-check/${byId("order-check-member").value}/stop`).catch((err) => notify(err.message));
+  loadOrderRun().catch((err) => notify(err.message));
+});
+
+byId("order-check-filter").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-order-filter]");
+  if (!btn) return;
+  orderCheck.filter = btn.dataset.orderFilter;
+  renderOrderRun();
+});
+
 // Routing and clicks
 
 const loaders = {
@@ -1548,6 +1708,7 @@ const loaders = {
   fees: loadFees,
   channels: loadChannels,
   members: loadMembers,
+  orders: loadOrderCheck,
   export: loadSettings,
   settings: loadSettings,
   activity: loadAudit,

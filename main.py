@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 import aycd
 import config
 import db
+import order_check
 
 GMAIL_IMAP_HOST = "imap.gmail.com"
 GMAIL_IMAP_PORT = 993
@@ -578,6 +579,10 @@ def member_row(conn, r) -> dict:
         "inbox": (settings.get("inbox") or {}).get("method"),
         "hits": stats["hits"], "due": stats["due"], "paid": stats["paid"],
     }
+
+
+def plural_s(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
 
 
 def _int(value):
@@ -1203,6 +1208,65 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         if not post:
             raise AppError(404, "That recap isn't on the list.")
         return h.send_json(200, {"status": post["status"], "error": post["error"], "channelName": post.get("channelName", "")})
+
+    if (method, path) == ("GET", "/api/admin/order-check"):
+        # Who can be checked: members with an AYCD Inbox key saved, that this admin may open.
+        rows = conn.execute(
+            """SELECT users.*, (SELECT COUNT(*) FROM checkouts WHERE checkouts.user_id = users.id AND result = 'hit'
+                                  AND order_no != '' AND email != '') AS checkable
+               FROM users WHERE EXISTS (SELECT 1 FROM secrets WHERE secrets.user_id = users.id AND kind = 'inbox')
+               ORDER BY COALESCE(NULLIF(display_name, ''), username) COLLATE NOCASE""").fetchall()
+        members = []
+        for r in rows:
+            method_name = ((db.user_settings(r) or {}).get("inbox") or {}).get("method")
+            if method_name == "aycd" and can_open(admin, r):
+                members.append({"id": r["id"], "name": r["display_name"] or r["username"], "username": r["username"],
+                                "checkable": r["checkable"], "running": order_check.running(r["id"])})
+        return h.send_json(200, {"members": members})
+
+    m_check = re.fullmatch(r"/api/admin/order-check/(\d+)(/stop)?", path)
+    if m_check:
+        member = conn.execute("SELECT * FROM users WHERE id = ?", (int(m_check.group(1)),)).fetchone()
+        if not member:
+            raise AppError(404, "No such member.")
+        if not can_open(admin, member):
+            db.audit(conn, admin["id"], "blocked.order_check", f"tried to check {member['username']}'s orders")
+            return h.send_json(403, {"ok": False, "message": LOCKED})
+        if method == "GET" and not m_check.group(2):
+            return h.send_json(200, {"run": order_check.get(conn, member["id"])})
+        if method == "POST" and m_check.group(2):
+            return h.send_json(200, {"ok": order_check.stop(member["id"])})
+        if method == "POST":
+            body = h.body()
+            days = max(1, min(_int(body.get("days")) or 7, 60))
+            retailer = str(body.get("retailer") or "")[:40]
+            template_id = str(body.get("templateId") or "").strip()[:80]
+            if ((db.user_settings(member) or {}).get("inbox") or {}).get("method") != "aycd":
+                raise AppError(400, "This member doesn't use an AYCD Inbox key.")
+            key = str(db.get_secret(conn, member["id"], "inbox", "inbox") or "").strip()
+            if not key:
+                raise AppError(400, "This member has no AYCD Inbox key saved.")
+            where, args = "user_id = ? AND result = 'hit' AND created_at >= ?", [member["id"], db.now() - days * 86400]
+            if retailer:
+                where += " AND retailer = ?"
+                args.append(retailer)
+            rows = conn.execute(f"SELECT * FROM checkouts WHERE {where} ORDER BY created_at DESC, id DESC LIMIT 300", args).fetchall()
+            ready = [r for r in rows if r["order_no"].strip() and r["email"].strip()]
+            if not ready:
+                raise AppError(400, "No checkouts in that time have both an order number and an account email to search for."
+                               if rows else "No checkouts in that time.")
+            checkouts = [{"id": r["id"], "product": r["product"] or "Unknown item", "retailer": r["retailer"] or "Unknown",
+                          "order": r["order_no"].strip(), "email": r["email"].strip(), "qty": r["qty"], "price": r["price"],
+                          "stage": r["stage"], "createdAt": r["created_at"], "at": r["created_at"] * 1000} for r in ready]
+            options = {"days": days, "retailer": retailer, "templateId": template_id, "skipped": len(rows) - len(ready)}
+            try:
+                run = order_check.start(key, member["id"], checkouts, options, admin["username"])
+            except order_check.AycdError as e:
+                raise AppError(409, str(e))
+            db.audit(conn, admin["id"], "order_check.run",
+                     f"{member['username']}: {plural_s(len(checkouts), 'checkout')} from the last {plural_s(days, 'day')}"
+                     f"{' at ' + retailer if retailer else ''}, on their AYCD Inbox key")
+            return h.send_json(200, {"run": run})
 
     if (method, path) == ("GET", "/api/admin/audit"):
         # The master log: owners only, so admins can't see what's recorded about them.
