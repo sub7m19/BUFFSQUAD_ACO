@@ -165,6 +165,14 @@ class OrderCheckTest(ServerCase):
         other = {"status": "success", "results": {"subject": "Here's your order #:912000000000001."}}
         self.assertEqual(order_check.outcome(c, other, {"status": "timeout"}, [])["outcome"], "mismatch")
 
+    def test_aycd_timing_out_means_no_email(self):
+        # AYCD reports a search that found nothing as an error saying it timed out.
+        c = {"order": "912000000000005", "retailer": "Target"}
+        timed = {"status": "error", "results": {"errorMessage": "The task has timed out."}}
+        self.assertEqual(order_check.outcome(c, timed, timed, [])["outcome"], "not_found")
+        broken = {"status": "error", "results": {"errorMessage": "No mail credentials for that email."}}
+        self.assertEqual(order_check.outcome(c, timed, broken, [])["outcome"], "error")
+
 
 if __name__ == "__main__":
     unittest.main()

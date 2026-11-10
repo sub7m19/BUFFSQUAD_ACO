@@ -23,9 +23,11 @@ from urllib.request import Request, urlopen
 import db
 
 BASE_URL = "https://inbox-api.aycd.io"
-TASK_TIMEOUT = 90          # seconds AYCD searches the mailbox per task; the emails are already there
-DEADLINE_GRACE = 90        # extra wait for AYCD to report a task done before we give up on it
-MAX_ACTIVE = 10            # tasks running at once on one member's AYCD Inbox
+# A search that finds its email comes back in seconds; one with nothing to find runs until this timeout and
+# holds its slot the whole time. The emails are already in the mailbox, so a minute is plenty.
+TASK_TIMEOUT = 60          # seconds AYCD searches the mailbox per task
+DEADLINE_GRACE = 60        # extra wait for AYCD to report a task done before we give up on it
+MAX_ACTIVE = 30            # tasks running at once on one member's AYCD Inbox (proxy_webhook runs 30)
 POLL_SECONDS = 1.5
 MAX_RUNNING_JOBS = 3       # checks running at once across all members
 RECEIVED_BUFFER = 120      # look for emails from a bit before the webhook, in case the bot posted late
@@ -173,6 +175,12 @@ def error_text(resp) -> str:
     return ""
 
 
+def timed_out(resp) -> bool:
+    """AYCD ran the search and nothing matched before the timeout: no email, not an error."""
+    status = str((resp or {}).get("status") or "").lower()
+    return status == "timeout" or (status == "error" and "timed out" in error_text(resp).lower())
+
+
 def outcome(c: dict, order_resp, follow_resp, create_errors: list[str]) -> dict:
     """What the emails say about one checkout."""
     order_ok = succeeded(order_resp) and email_names_order(order_resp, c["order"]) is True
@@ -198,8 +206,9 @@ def outcome(c: dict, order_resp, follow_resp, create_errors: list[str]) -> dict:
     if any(succeeded(x) and email_names_order(x, c["order"]) is False for x in (order_resp, follow_resp)):
         other = next(x for x in (order_resp, follow_resp) if succeeded(x) and email_names_order(x, c["order"]) is False)
         return {**res, "outcome": "mismatch", "subject": first_line(results_of(other).get("subject"))}
-    errors = create_errors + [e for e in (error_text(order_resp), error_text(follow_resp)) if e]
-    statuses = {str((x or {}).get("status") or "").lower() for x in (order_resp, follow_resp)}
+    real = [x for x in (order_resp, follow_resp) if not timed_out(x)]
+    errors = create_errors + [e for e in map(error_text, real) if e]
+    statuses = {str((x or {}).get("status") or "").lower() for x in real}
     if create_errors or "error" in statuses:
         return {**res, "outcome": "error", "error": "; ".join(dict.fromkeys(errors)) or "AYCD couldn't run the search."}
     return res

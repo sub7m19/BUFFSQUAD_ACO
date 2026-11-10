@@ -1295,3 +1295,12 @@ code.revealed {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The page scrolls when it's taller than the window: no visible scrollbar, like the panels' own lists */
+.main {
+  scrollbar-width: none;
+}
+
+.main::-webkit-scrollbar {
+  display: none;
+}
