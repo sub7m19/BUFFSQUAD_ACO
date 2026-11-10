@@ -116,13 +116,14 @@ def mail_filters(c: dict, kind: str) -> list[dict]:
     digits = next(iter(sorted(numbers(c["order"]), key=len, reverse=True)), "")
     if order_in_subject(c):
         # Target puts the order number in every subject, so require it: AYCD can't hand back another order.
-        filters = [{"target": "subject", "comparator": "includes", "value": digits}]
+        # Only "includes" filters: with "excludes" ones added, AYCD never found Target confirmations that were
+        # in the mailbox. So the order search takes any email with the number, and outcome() reads its subject.
+        filters = [{"target": "subject", "comparator": "includes", "value": digits},
+                   {"target": "from", "comparator": "includes", "value": "target"}]
         if kind == "followup":
             first, *rest = FOLLOWUP_WORDS
             filters.append({"target": "subject", "comparator": "includes", "value": first,
                             "orValues": [*rest, "on the way", "tracking"]})
-        else:
-            filters += [{"target": "subject", "comparator": "excludes", "value": w} for w in FOLLOWUP_WORDS]
         return filters
     # Elsewhere: a loose subject match from the retailer; the order number in the body is checked afterwards.
     if kind == "followup":
@@ -203,11 +204,16 @@ def outcome(c: dict, order_resp, follow_resp, create_errors: list[str]) -> dict:
         res.update(outcome="confirmed", subject=first_line(r.get("subject")))
         total = TOTAL_RE.search(first_line(r.get("orderTotal")))
         res["emailTotal"] = float(total.group(1).replace(",", "")) if total else None
-    if follow_ok:
-        r = results_of(follow_resp)
+    # The order search can hand back a follow-up (shipped, canceled) too; read it as one. The strongest
+    # news wins: canceled over delivered over shipped.
+    rank = {"confirmed": 0, "shipped": 1, "delivered": 2, "canceled": 3}
+    for resp in (order_resp, follow_resp):
+        if not (succeeded(resp) and email_names_order(resp, c["order"]) is True):
+            continue
+        r = results_of(resp)
         subject = first_line(r.get("subject"))
         status = next((s for pattern, s in FOLLOWUP_STATUS if pattern.search(subject)), None)
-        if status:
+        if status and rank[status] > rank.get(res["outcome"], -1):
             res.update(outcome=status, subject=subject)
             tracking = first_line(r.get("trackingNumber"))
             m = re.search(r"\b1Z[0-9A-Z]{16}\b|[A-Z0-9]*\d[A-Z0-9]{7,39}\s*$", tracking, re.I)

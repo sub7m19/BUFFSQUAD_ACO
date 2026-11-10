@@ -193,6 +193,20 @@ class OrderCheckTest(ServerCase):
         loose = {**target, "retailer": "Pokemon Center"}
         self.assertEqual(order_check.build_task(loose, "order", "g", "", 60)["receivedAt"], posted - order_check.LOOKBACK_LOOSE)
 
+    def test_target_search_has_no_excludes_and_reads_the_subject(self):
+        c = {"order": "102003869997105", "retailer": "Target", "email": "a@outlook.com", "createdAt": 0}
+        filters = order_check.mail_filters(c, "order")
+        self.assertFalse([f for f in filters if f["comparator"] == "excludes"])
+        self.assertIn({"target": "subject", "comparator": "includes", "value": "102003869997105"}, filters)
+        confirmation = {"status": "success", "results": {
+            "subject": "Thanks for shopping with us! Here's your order #:102003869997105."}}
+        self.assertEqual(order_check.outcome(c, confirmation, {"status": "timeout"}, [])["outcome"], "confirmed")
+        # The order search handed back the cancel email, the follow-up search a shipping one: canceled wins.
+        canceled = {"status": "success", "results": {"subject": "Your order #102003869997105 has been canceled"}}
+        shipped = {"status": "success", "results": {"subject": "Items from order #102003869997105 have shipped"}}
+        self.assertEqual(order_check.outcome(c, canceled, shipped, [])["outcome"], "canceled")
+        self.assertEqual(order_check.outcome(c, confirmation, shipped, [])["outcome"], "shipped")
+
     def test_aycd_timing_out_means_no_email(self):
         # AYCD reports a search that found nothing as an error saying it timed out.
         c = {"order": "912000000000005", "retailer": "Target"}
