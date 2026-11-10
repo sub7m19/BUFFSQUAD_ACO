@@ -1258,7 +1258,8 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             checkouts = [{"id": r["id"], "product": r["product"] or "Unknown item", "retailer": r["retailer"] or "Unknown",
                           "order": r["order_no"].strip(), "email": r["email"].strip(), "qty": r["qty"], "price": r["price"],
                           "stage": r["stage"], "createdAt": r["created_at"], "at": r["created_at"] * 1000} for r in ready]
-            options = {"days": days, "retailer": retailer, "templateId": template_id, "skipped": len(rows) - len(ready)}
+            options = {"days": days, "retailer": retailer, "templateId": template_id, "skipped": len(rows) - len(ready),
+                       "quick": bool(body.get("quick"))}
             try:
                 run = order_check.start(key, member["id"], checkouts, options, admin["username"])
             except order_check.AycdError as e:

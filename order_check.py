@@ -28,7 +28,7 @@ BASE_URL = "https://inbox-api.aycd.io"
 TASK_TIMEOUT = 60          # seconds AYCD searches the mailbox per task
 DEADLINE_GRACE = 60        # extra wait for AYCD to report a task done before we give up on it
 MAX_ACTIVE = 30            # tasks running at once on one member's AYCD Inbox (proxy_webhook runs 30)
-POLL_SECONDS = 1.5
+POLL_SECONDS = 1.0          # AYCD's docs allow up to 60 completed-task polls a minute
 MAX_RUNNING_JOBS = 3       # checks running at once across all members
 RECEIVED_BUFFER = 120      # look for emails from a bit before the webhook, in case the bot posted late
 
@@ -243,7 +243,8 @@ def summary(job: dict) -> dict:
 def public(job: dict | None) -> dict | None:
     if not job:
         return None
-    return {k: v for k, v in job.items() if not k.startswith("_")} | {"summary": summary(job)}
+    # serverNow lets the page run its timer off the server's clock, not the viewer's.
+    return {k: v for k, v in job.items() if not k.startswith("_")} | {"summary": summary(job), "serverNow": int(time.time() * 1000)}
 
 
 def get(conn, user_id: int) -> dict | None:
@@ -252,6 +253,11 @@ def get(conn, user_id: int) -> dict | None:
     if job:
         return public(job)
     return public(db.kv_get(conn, kv_key(user_id)))
+
+
+def kinds(options: dict) -> tuple[str, ...]:
+    """The searches per checkout: the confirmation, and unless it's a quick check, any cancel or shipping email."""
+    return ("order",) if options.get("quick") else ("order", "followup")
 
 
 def start(key: str, user_id: int, checkouts: list[dict], options: dict, by: str) -> dict:
@@ -263,7 +269,7 @@ def start(key: str, user_id: int, checkouts: list[dict], options: dict, by: str)
         job = {
             "id": secrets.token_hex(4), "userId": user_id, "status": "running", "message": "Connecting to AYCD…",
             "options": options, "by": by, "startedAt": int(time.time() * 1000), "finishedAt": None,
-            "tasks": {"total": len(checkouts) * 2, "settled": 0, "active": 0},
+            "tasks": {"total": len(checkouts) * len(kinds(options)), "settled": 0, "active": 0},
             "results": [{**c, "outcome": None} for c in checkouts],
             "_stop": threading.Event(),
         }
@@ -302,7 +308,9 @@ def _run(job: dict, key: str) -> None:
 def _scrape(job: dict, key: str) -> None:
     group = quote(f"buffsquad-check-{job['id']}", safe="")
     template_id = job["options"].get("templateId") or ""
-    queue = deque((i, kind) for i in range(len(job["results"])) for kind in ("order", "followup"))
+    wanted = kinds(job["options"])
+    queue = deque((i, kind) for i in range(len(job["results"])) for kind in wanted)
+    began: dict[int, float] = {}          # result index -> when its first search started
     responses: dict[int, dict] = {}       # result index -> {"order": resp, "followup": resp}
     create_errors: dict[int, list] = {}
     pending: dict[str, tuple[int, str, float]] = {}   # task id -> (index, kind, deadline)
@@ -312,15 +320,17 @@ def _scrape(job: dict, key: str) -> None:
         responses.setdefault(i, {})[kind] = resp
         tasks["settled"] += 1
         got = responses[i]
-        if "order" in got and "followup" in got:
+        if all(k in got for k in wanted):
             c = job["results"][i]
-            c.update(outcome(c, got["order"], got["followup"], create_errors.get(i, [])))
+            c.update(outcome(c, got["order"], got.get("followup"), create_errors.get(i, [])))
+            c["secs"] = round(time.monotonic() - began.get(i, time.monotonic()))
 
     while queue or pending:
         if job["_stop"].is_set():
             return
         while queue and len(pending) < MAX_ACTIVE:
             i, kind = queue.popleft()
+            began.setdefault(i, time.monotonic())
             try:
                 resp = aycd(key, "POST", "/api/v1/tasks/mail/create", build_task(job["results"][i], kind, group, template_id))
                 task_id = resp.get("id") if isinstance(resp, dict) else None

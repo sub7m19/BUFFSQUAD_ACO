@@ -1553,7 +1553,15 @@ const ORDER_OUTCOMES = {
   error: { label: "Error", icon: "x", tone: "red" },
 };
 const STUCK = ["confirmed", "shipped", "delivered"];
-const orderCheck = { members: [], run: null, filter: "all", timer: null };
+const orderCheck = { members: [], run: null, filter: "all", timer: null, offset: 0 };
+// 75 -> "1:15", 3725 -> "1:02:05"
+const duration = (secs) => {
+  const s = Math.max(0, Math.round(secs));
+  const [h, m] = [Math.floor(s / 3600), Math.floor((s % 3600) / 60)];
+  return h ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`;
+};
+// Seconds the run has taken so far (or in all, once it finished), on the server's clock.
+const runSecs = (run) => ((run.finishedAt || Date.now() + orderCheck.offset) - run.startedAt) / 1000;
 const orderForm = byId("order-check-form");
 
 async function loadOrderCheck() {
@@ -1579,6 +1587,7 @@ async function loadOrderRun() {
   const { run } = await api("GET", `/api/admin/order-check/${id}`);
   if (byId("order-check-member").value !== id) return;
   orderCheck.run = run;
+  if (run) orderCheck.offset = run.serverNow - Date.now();
   renderOrderRun();
   clearTimeout(orderCheck.timer);
   // While a check runs, follow it every 2 seconds (only on this page).
@@ -1592,10 +1601,11 @@ function orderTiles(run) {
   const busy = run.status === "running";
   const other = counts.mismatch + counts.error;
   return [
-    ["inbox", "cyan", "Checked", `${done} / ${run.results.length}`, busy ? "Still searching" : "Checkouts searched"],
+    ["clock", "cyan", "Checked", `${done} / ${run.results.length}`, busy ? "Still searching" : `Took ${duration(runSecs(run))}`],
     ["check", "green", "Stuck", stuck, rate === null ? "—" : `${rate}% of checked`],
     ["truck", "violet", "Shipped or delivered", counts.shipped + counts.delivered, `${counts.confirmed} confirmed, not shipped yet`],
-    ["x", counts.canceled ? "peach" : "green", "Canceled", counts.canceled, counts.canceled ? "Retailer canceled the order" : "None canceled"],
+    ["x", counts.canceled ? "peach" : "green", "Canceled", run.options.quick ? "—" : counts.canceled,
+     run.options.quick ? "Not searched (confirmations only)" : counts.canceled ? "Retailer canceled the order" : "None canceled"],
     ["search", counts.not_found ? "peach" : "green", "No email", counts.not_found, "Nothing with that order #"],
     ["bolt", other ? "peach" : "green", "Other / errors", other, `${counts.mismatch} other order, ${counts.error} error`],
   ].map(([ic, tone, label, value, note]) => `
@@ -1621,7 +1631,7 @@ function orderRow(r, busy) {
       <span class="avatar">${escape(initials(r.retailer))}</span>
       <div class="checkout-info">
         <strong>${escape(r.product)}</strong>
-        <span>${escape(r.retailer)}${r.qty > 1 ? ` · Qty ${r.qty}` : ""} · #${escape(r.order)} · ${escape(r.email)} · ${when(r.at)}</span>
+        <span>${escape(r.retailer)}${r.qty > 1 ? ` · Qty ${r.qty}` : ""} · #${escape(r.order)} · ${escape(r.email)} · ${when(r.at)}${r.secs != null ? ` · searched in ${duration(r.secs)}` : ""}</span>
         ${detail ? `<span>${detail}</span>` : ""}
         ${differs ? `<span><b class="unmatched">Marked ${escape(recorded)} here</b></span>` : ""}
       </div>
@@ -1643,7 +1653,9 @@ function renderOrderRun() {
   byId("order-check-failed").textContent = run.message;
   const o = run.options || {};
   byId("order-check-meta").textContent = `${plural(run.results.length, "checkout")} from the last ${plural(o.days, "day")}${o.retailer ? ` at ${o.retailer}` : ""}`
-    + `${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}${run.status === "stopped" ? " · stopped" : ""}`;
+    + `${o.quick ? " · confirmations only" : ""}${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}`
+    + `${busy ? "" : ` · took ${duration(runSecs(run))}`}${run.status === "stopped" ? " · stopped" : ""}`;
+  tickOrderTimer();
   byId("order-check-tiles").innerHTML = orderTiles(run);
 
   const tabs = [["all", "All", run.results.length], ["stuck", "Stuck", stuck], ["canceled", "Canceled", counts.canceled],
@@ -1659,6 +1671,17 @@ function renderOrderRun() {
   byId("order-check-empty").hidden = list.length > 0;
 }
 
+// The live timer: time so far and, once a few searches are back, a guess at the time left from the pace so far.
+function tickOrderTimer() {
+  const run = orderCheck.run;
+  if (!run || run.status !== "running") return;
+  const secs = runSecs(run);
+  const { settled, total } = run.tasks;
+  const left = settled >= Math.max(3, total * 0.1) ? (secs / settled) * (total - settled) : null;
+  byId("order-check-timer").textContent = `${duration(secs)} elapsed${left === null ? "" : ` · about ${duration(left)} left`}`;
+}
+setInterval(tickOrderTimer, 1000);
+
 orderForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const err = byId("order-check-error");
@@ -1667,7 +1690,7 @@ orderForm.addEventListener("submit", async (e) => {
   byId("order-check-run").disabled = true;
   try {
     const { run } = await api("POST", `/api/admin/order-check/${f.userId.value}`, {
-      days: Number(f.days.value), retailer: f.retailer.value, templateId: f.templateId.value.trim(),
+      days: Number(f.days.value), retailer: f.retailer.value, templateId: f.templateId.value.trim(), quick: f.quick.value === "1",
     });
     orderCheck.run = run;
     orderCheck.filter = "all";

@@ -144,6 +144,17 @@ class OrderCheckTest(ServerCase):
         self.assertEqual(again["run"]["summary"]["stuck"], 2)
         _, log, _ = admin.request("GET", "/api/admin/audit")
         self.assertTrue(any(r["action"] == "order_check.run" for r in log["rows"]))
+        self.assertTrue(all(isinstance(r["secs"], int) for r in run["results"]))
+        self.assertGreaterEqual(run["finishedAt"], run["startedAt"])
+
+        # Confirmations only: one search per checkout, so the canceled order just reads as confirmed.
+        status, body, _ = admin.request("POST", f"/api/admin/order-check/{user_id}", {"days": 7, "quick": True})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["run"]["tasks"]["total"], 4)
+        run = self.wait(admin, user_id)
+        got = {r["order"]: r["outcome"] for r in run["results"]}
+        self.assertEqual((got["912000000000001"], got["912000000000002"], got["912000000000009"]),
+                         ("confirmed", "confirmed", "not_found"))
 
     def test_bad_key_fails_the_check(self):
         user_id = self.member("ocheckbad", "wrong-key")

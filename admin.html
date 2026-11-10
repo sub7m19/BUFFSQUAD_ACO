@@ -320,13 +320,20 @@
               </select>
             </label>
             <label>
+              Search for
+              <select name="quick">
+                <option value="">Confirmations, cancels and shipping</option>
+                <option value="1">Confirmations only (about 2x faster)</option>
+              </select>
+            </label>
+            <label>
               <span>AYCD template <small>optional</small></span>
               <input name="templateId" maxlength="80" autocomplete="off" placeholder="For iCloud aliases forwarded to Gmail">
             </label>
             <button class="button primary" type="submit" id="order-check-run"><svg class="icon"><use href="#i-search"/></svg>Check orders</button>
           </form>
           <p class="field-error" id="order-check-error" hidden></p>
-          <p class="field-hint">Only members who saved an AYCD Inbox key are listed. Their <b>AYCD Inbox app has to be open</b> while the check runs: AYCD does the searching on their computer. Each checkout gets two searches, the order confirmation and any cancel or shipping email, and an email only counts if it has that checkout's order number. Every check is logged.</p>
+          <p class="field-hint">Only members who saved an AYCD Inbox key are listed. Their <b>AYCD Inbox app has to be open</b> while the check runs: AYCD does the searching on their computer. Each checkout gets two searches, the order confirmation and any cancel or shipping email, and an email only counts if it has that checkout's order number. <b>Confirmations only</b> skips the second search, so it can't spot canceled orders. Every check is logged.</p>
         </section>
 
         <section class="panel" id="order-check-results" aria-labelledby="order-check-results-title" hidden>
@@ -337,6 +344,7 @@
           <div class="order-check-progress" id="order-check-progress" hidden>
             <div class="order-check-bar"><span id="order-check-bar"></span></div>
             <span id="order-check-message"></span>
+            <span class="order-check-timer" id="order-check-timer"></span>
             <button class="button ghost" type="button" id="order-check-stop"><svg class="icon"><use href="#i-x"/></svg>Stop</button>
           </div>
           <p class="field-error" id="order-check-failed" hidden></p>
