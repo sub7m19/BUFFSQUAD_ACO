@@ -576,7 +576,7 @@ function update(message, undo) {
 
 // Routing: each sidebar item is its own page.
 
-const ROUTES = ["home", "checkouts", "billing", "profiles", "inbox", "notifications"];
+const ROUTES = ["home", "checkouts", "orders", "billing", "profiles", "inbox", "notifications"];
 
 function route() {
   // Old #accounts links land on the Retailer accounts tab of Profiles.
@@ -606,6 +606,7 @@ function route() {
   });
   window.scrollTo(0, 0);
   requestAnimationFrame(updateScrollFades);
+  if (name === "orders") loadTracker().catch((err) => notify(err.message));
 }
 
 window.addEventListener("hashchange", route);
@@ -1494,6 +1495,230 @@ async function checkVersion() {
 byId("app-version").addEventListener("click", (e) => {
   if (e.currentTarget.classList.contains("fresh")) location.reload();
 });
+
+// Order tracker: the member searches their own mail (Custom IMAP or AYCD UpLink) for each checkout's
+// order emails, to see which went through, shipped or got canceled. The server does the searching.
+
+const TRACK_OUTCOMES = {
+  confirmed: { label: "Confirmed", icon: "check", tone: "cyan" },
+  shipped: { label: "Shipped", icon: "truck", tone: "violet" },
+  delivered: { label: "Delivered", icon: "box", tone: "green" },
+  canceled: { label: "Canceled", icon: "x", tone: "red" },
+  not_found: { label: "No email", icon: "search", tone: "peach" },
+  mismatch: { label: "Other order", icon: "bolt", tone: "peach" },
+  error: { label: "Error", icon: "bolt", tone: "red" },
+};
+const TRACK_STUCK = ["confirmed", "shipped", "delivered"];
+const tracker = { run: null, imap: null, mode: "custom", filter: "all", timer: null, offset: 0, loaded: false };
+const trackerForm = byId("tracker-form");
+const two = (n) => String(n).padStart(2, "0");
+const trackDuration = (secs) => {
+  const s = Math.max(0, Math.round(secs));
+  const [h, m] = [Math.floor(s / 3600), Math.floor((s % 3600) / 60)];
+  return h ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`;
+};
+const trackWhen = (ms) => new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+async function trackerApi(method, url, body) {
+  const res = await fetch(url, {
+    method, headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (res.status === 401) {
+    location.href = "/auth/discord/login?next=" + encodeURIComponent("/dashboard#orders");
+    throw new Error("Signed out.");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || "Something went wrong. Try again.");
+  return data;
+}
+
+function setTrackerMode(mode) {
+  tracker.mode = mode;
+  document.querySelectorAll("#tracker-mode button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.value === mode));
+  document.querySelectorAll('[data-view="orders"] [data-mode]').forEach((el) => { el.hidden = el.dataset.mode !== mode; });
+  const f = trackerForm.elements;
+  f.host.placeholder = mode === "custom" ? "imap.gmail.com" : "Your UpLink host";
+  f.username.required = mode === "custom";
+  showTrackerSaved();
+}
+
+// "Saved" only counts for the same server and login it was saved for.
+function trackerSavedHere() {
+  const s = tracker.imap;
+  const f = trackerForm.elements;
+  return Boolean(s && s.saved && s.mode === tracker.mode && s.host === f.host.value.trim()
+    && (tracker.mode !== "custom" || s.username === f.username.value.trim()));
+}
+
+function showTrackerSaved() {
+  const here = trackerSavedHere();
+  const f = trackerForm.elements;
+  f.password.required = !here;
+  f.password.placeholder = here ? "Saved: leave blank to keep it" : tracker.mode === "custom" ? "App password" : "IMAP Service password";
+  byId("tracker-password-note").textContent = tracker.mode === "uplink" ? "set in AYCD Inbox" : "";
+  byId("tracker-forget").hidden = !(tracker.imap && tracker.imap.saved);
+  const status = byId("tracker-status");
+  status.className = `status ${tracker.imap && tracker.imap.saved ? "paid" : "paused"}`;
+  status.textContent = tracker.imap && tracker.imap.saved
+    ? `Saved · ${tracker.imap.mode === "custom" ? "Custom IMAP" : "AYCD UpLink"}` : "Not connected";
+}
+
+function fillTracker(imap) {
+  tracker.imap = imap;
+  const f = trackerForm.elements;
+  if (imap && imap.saved) {
+    f.host.value = imap.host || "";
+    f.username.value = imap.username || "";
+    f.port.value = imap.port || 993;
+    f.ssl.value = imap.ssl === false ? "0" : "1";
+    f.forwardTo.value = imap.forwardTo || "";
+    setTrackerMode(imap.mode === "uplink" ? "uplink" : "custom");
+  } else {
+    setTrackerMode(tracker.mode);
+  }
+}
+
+async function loadTracker() {
+  const data = await trackerApi("GET", "/api/me/order-check");
+  if (!tracker.loaded) {
+    tracker.loaded = true;
+    fillTracker(data.imap);
+    if (!data.checkable) {
+      byId("tracker-error").textContent = "None of your checkouts have both an order number and an account email yet, so there's nothing to track.";
+      byId("tracker-error").hidden = false;
+    }
+  }
+  tracker.run = data.run;
+  if (data.run) tracker.offset = data.run.serverNow - Date.now();
+  renderTracker();
+  clearTimeout(tracker.timer);
+  if (data.run && data.run.status === "running" && location.hash === "#orders") {
+    tracker.timer = setTimeout(() => loadTracker().catch((err) => notify(err.message)), 1500);
+  }
+}
+
+function trackerRow(r, busy) {
+  const out = TRACK_OUTCOMES[r.outcome];
+  const pill = out
+    ? `<span class="stage ${out.tone}">${icon(out.icon)}${out.label}</span>`
+    : `<span class="status paused">${busy ? "Searching…" : "Not checked"}</span>`;
+  const detail = r.error ? `<b class="tracker-err">${escape(r.error)}</b>`
+    : r.subject ? `“${escape(r.subject)}”${r.emailTotal ? ` · total ${money(r.emailTotal)}` : ""}${r.tracking ? ` · tracking ${escape(r.tracking)}` : ""}`
+    : r.outcome === "not_found" ? "No email with this order # yet" : "";
+  return `
+    <li class="tracker-row">
+      <span class="avatar">${escape(initials(r.retailer))}</span>
+      <div class="checkout-info">
+        <strong>${escape(r.product)}</strong>
+        <span>${escape(r.retailer)}${r.qty > 1 ? ` · Qty ${r.qty}` : ""} · #${escape(r.order)} · ${escape(r.email)} · ${trackWhen(r.at)}</span>
+        ${detail ? `<span>${detail}</span>` : ""}
+      </div>
+      ${pill}
+    </li>`;
+}
+
+function renderTracker() {
+  const run = tracker.run;
+  byId("tracker-results").hidden = !run;
+  byId("tracker-run").disabled = Boolean(run && run.status === "running");
+  if (!run) return;
+  const busy = run.status === "running";
+  const { counts, done, stuck, rate } = run.summary;
+  byId("tracker-progress").hidden = !busy;
+  byId("tracker-bar").style.width = `${run.tasks.total ? Math.round((run.tasks.settled / run.tasks.total) * 100) : 0}%`;
+  byId("tracker-message").textContent = run.message;
+  byId("tracker-failed").hidden = run.status !== "failed";
+  byId("tracker-failed").textContent = run.message;
+  const o = run.options || {};
+  const took = ((run.finishedAt || Date.now() + tracker.offset) - run.startedAt) / 1000;
+  byId("tracker-meta").textContent = `${plural(run.results.length, "order")} from the last ${plural(o.days, "day")}${o.retailer ? ` at ${o.retailer}` : ""}`
+    + ` · ${trackWhen(run.startedAt)}${busy ? "" : ` · took ${trackDuration(took)}`}${run.status === "stopped" ? " · stopped" : ""}`;
+  const other = counts.mismatch + counts.error;
+  byId("tracker-tiles").innerHTML = [
+    ["check", "green", "Went through", stuck, rate === null ? `${done} of ${run.results.length} checked` : `${rate}% of ${done} checked`],
+    ["truck", "violet", "Shipped or delivered", counts.shipped + counts.delivered, `${counts.confirmed} confirmed, not shipped yet`],
+    ["x", counts.canceled ? "peach" : "green", "Canceled", counts.canceled, counts.canceled ? "The retailer canceled them" : "None canceled"],
+    ["search", counts.not_found || other ? "peach" : "cyan", "No email / errors", counts.not_found + other,
+     `${counts.not_found} no email${other ? `, ${other} couldn't check` : ""}`],
+  ].map(([ic, tone, label, value, note]) => `
+    <div class="tile">
+      <span class="tile-icon ${tone}">${icon(ic)}</span>
+      <div><small>${label}</small><strong>${escape(value)}</strong><span class="tile-note">${escape(note)}</span></div>
+    </div>`).join("");
+  const tabs = [["all", "All", run.results.length], ["stuck", "Went through", stuck], ["canceled", "Canceled", counts.canceled],
+                ["not_found", "No email", counts.not_found + other]];
+  byId("tracker-filter").innerHTML = tabs.map(([v, label, n]) =>
+    `<button type="button" data-value="${v}" aria-pressed="${tracker.filter === v}">${label} <b>${n}</b></button>`).join("");
+  const show = {
+    all: () => true, stuck: (r) => TRACK_STUCK.includes(r.outcome), canceled: (r) => r.outcome === "canceled",
+    not_found: (r) => ["not_found", "mismatch", "error"].includes(r.outcome),
+  }[tracker.filter];
+  const list = run.results.filter(show);
+  byId("tracker-list").innerHTML = list.map((r) => trackerRow(r, busy)).join("");
+  byId("tracker-empty").hidden = list.length > 0;
+}
+
+if (trackerForm) {
+byId("tracker-mode").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-value]");
+  if (b) setTrackerMode(b.dataset.value);
+});
+["host", "username"].forEach((n) => trackerForm.elements[n].addEventListener("input", showTrackerSaved));
+
+trackerForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = trackerForm.elements;
+  const err = byId("tracker-error");
+  err.hidden = true;
+  byId("tracker-run").disabled = true;
+  try {
+    const { run } = await trackerApi("POST", "/api/me/order-check", {
+      days: Number(f.days.value), retailer: f.retailer.value,
+      imap: {
+        mode: tracker.mode, host: f.host.value.trim(), port: Number(f.port.value) || 993, ssl: f.ssl.value === "1",
+        username: tracker.mode === "custom" ? f.username.value.trim() : "", password: f.password.value,
+        forwardTo: tracker.mode === "uplink" ? f.forwardTo.value.trim() : "",
+      },
+    });
+    f.password.value = "";
+    tracker.imap = { mode: tracker.mode, host: f.host.value.trim(), username: f.username.value.trim(), saved: true };
+    showTrackerSaved();
+    tracker.run = run;
+    tracker.filter = "all";
+    renderTracker();
+    await loadTracker();
+  } catch (error) {
+    err.textContent = error.message;
+    err.hidden = false;
+    renderTracker();
+  }
+});
+
+byId("tracker-forget").addEventListener("click", async () => {
+  try {
+    await trackerApi("DELETE", "/api/me/order-check/imap");
+    tracker.imap = null;
+    trackerForm.elements.password.value = "";
+    showTrackerSaved();
+    notify("Removed your saved mail login.");
+  } catch (error) {
+    notify(error.message);
+  }
+});
+
+byId("tracker-stop").addEventListener("click", async () => {
+  await trackerApi("POST", "/api/me/order-check/stop").catch((err) => notify(err.message));
+  loadTracker().catch((err) => notify(err.message));
+});
+
+byId("tracker-filter").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-value]");
+  if (!b) return;
+  tracker.filter = b.dataset.value;
+  renderTracker();
+});
+}
 
 async function boot() {
   try {

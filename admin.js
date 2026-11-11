@@ -1486,7 +1486,7 @@ const ACTIONS = {
   "invoice.void": "Voided an invoice", "invoice.resend": "Resent an invoice", "settings.pay": "Changed how members pay",
   "blocked.export": "Blocked: downloading an admin's profiles", "blocked.reveal": "Blocked: revealing an admin's details",
   "blocked.disable": "Blocked: turning an admin on or off",
-  "order_check.run": "Checked a member's orders", "blocked.order_check": "Blocked: checking an admin's orders",
+  "order_check.run": "Checked a member's orders", "order_check.self": "Tracked their own orders", "blocked.order_check": "Blocked: checking an admin's orders",
 };
 
 const ROLES = { owner: "Owner", admin: "Admin" };
@@ -1584,7 +1584,7 @@ async function loadOrderCheck() {
 // Show the fields for the chosen way of searching.
 function showOrderSource() {
   const source = byId("order-check-source").value;
-  document.querySelectorAll('[data-view="orders"] [data-source]').forEach((el) => { el.hidden = el.dataset.source !== source; });
+  document.querySelectorAll('[data-view="orders"] [data-source]').forEach((el) => { el.hidden = !el.dataset.source.split(" ").includes(source); });
 }
 byId("order-check-source").addEventListener("change", showOrderSource);
 showOrderSource();
@@ -1594,12 +1594,16 @@ function fillOrderImap(imap) {
   const f = orderForm.elements;
   if (!imap || orderCheck.imapFor === f.userId.value) return;
   orderCheck.imapFor = f.userId.value;
+  // Open on the way this member's mail was last searched.
+  if (imap.saved) f.source.value = imap.mode === "custom" ? "custom" : "uplink";
+  showOrderSource();
   f.imapHost.value = imap.host || "";
+  f.imapUsername.value = imap.username || "";
   f.imapPort.value = imap.port || 993;
   f.imapSsl.value = imap.ssl === false ? "0" : "1";
   f.imapForwardTo.value = imap.forwardTo || "";
   f.imapPassword.value = "";
-  f.imapPassword.placeholder = imap.saved ? "Saved: leave blank to keep it" : "Set in AYCD Inbox";
+  f.imapPassword.placeholder = imap.saved ? "Saved: leave blank to keep it" : "";
 }
 
 async function loadOrderRun() {
@@ -1675,7 +1679,7 @@ function renderOrderRun() {
   byId("order-check-failed").textContent = run.message;
   const o = run.options || {};
   byId("order-check-meta").textContent = `${plural(run.results.length, "checkout")} from the last ${plural(o.days, "day")}${o.retailer ? ` at ${o.retailer}` : ""}`
-    + `${o.source === "imap" ? " · over AYCD IMAP" : ""}${o.quick ? " · confirmations only" : ""}${run.secondLook ? ` · second look at ${run.secondLook} with no email` : ""}${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}`
+    + `${o.source === "imap" ? ` · over ${o.imapMode === "custom" ? "custom IMAP" : "AYCD UpLink"}` : ""}${o.quick ? " · confirmations only" : ""}${run.secondLook ? ` · second look at ${run.secondLook} with no email` : ""}${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}`
     + `${busy ? "" : ` · took ${duration(runSecs(run))}`}${run.status === "stopped" ? " · stopped" : ""}`;
   tickOrderTimer();
   byId("order-check-tiles").innerHTML = orderTiles(run);
@@ -1713,13 +1717,13 @@ orderForm.addEventListener("submit", async (e) => {
   try {
     const { run } = await api("POST", `/api/admin/order-check/${f.userId.value}`, {
       days: Number(f.days.value), retailer: f.retailer.value, templateId: f.templateId.value.trim(), quick: f.quick.value === "1",
-      source: f.source.value,
-      imap: f.source.value === "imap" ? {
-        host: f.imapHost.value.trim(), port: Number(f.imapPort.value) || 993, ssl: f.imapSsl.value === "1",
-        password: f.imapPassword.value, forwardTo: f.imapForwardTo.value.trim(),
-      } : undefined,
+      source: f.source.value === "tasks" ? "tasks" : "imap",
+      imap: f.source.value === "tasks" ? undefined : {
+        mode: f.source.value, host: f.imapHost.value.trim(), port: Number(f.imapPort.value) || 993, ssl: f.imapSsl.value === "1",
+        username: f.imapUsername.value.trim(), password: f.imapPassword.value, forwardTo: f.imapForwardTo.value.trim(),
+      },
     });
-    if (f.source.value === "imap" && f.imapPassword.value) {
+    if (f.source.value !== "tasks" && f.imapPassword.value) {
       f.imapPassword.value = "";
       f.imapPassword.placeholder = "Saved: leave blank to keep it";
     }

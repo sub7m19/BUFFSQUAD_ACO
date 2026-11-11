@@ -433,14 +433,39 @@ INVISIBLE_RE = re.compile("[­͏؜ᅟᅠ឴឵᠎ -‏‪-‮⁠-⁯ㅤ﻿]")
 BARE_URL_LINE_RE = re.compile(r"^<?https?://\S+>?$")
 
 
+IMAP_MODES = ("uplink", "custom")
+
+
 def imap_config(value) -> dict:
+    """How to reach the mail. "uplink": AYCD Inbox's IMAP Server (through AYCD UpLink), which signs in to each
+    checkout's own account email with the one IMAP password. "custom": any IMAP mailbox (a catch-all, or a
+    Gmail everything forwards to), one username and password, where every checkout's mail is searched."""
     v = value if isinstance(value, dict) else {}
     try:
         port = min(max(int(v.get("port") or 993), 1), 65535)
     except (TypeError, ValueError):
         port = 993
-    return {"host": str(v.get("host") or "").strip()[:255], "port": port, "ssl": v.get("ssl", True) is not False,
+    mode = v.get("mode") if v.get("mode") in IMAP_MODES else "uplink"
+    return {"mode": mode, "host": str(v.get("host") or "").strip()[:255], "port": port,
+            "ssl": v.get("ssl", True) is not False, "username": str(v.get("username") or "").strip()[:200],
             "password": str(v.get("password") or ""), "forwardTo": str(v.get("forwardTo") or "").strip()[:200]}
+
+
+def imap_problem(cfg: dict) -> str:
+    """What's missing before a check can run, or ""."""
+    if not cfg["host"] or re.search(r"[\s/]", cfg["host"]):
+        return "Enter the IMAP host: just the address (like imap.gmail.com or your UpLink host), without http:// or a path."
+    if cfg["mode"] == "custom" and not cfg["username"]:
+        return "Enter the IMAP username (usually the mailbox's email address)."
+    if not cfg["password"]:
+        return ("Enter the IMAP password." if cfg["mode"] == "custom"
+                else "Enter the IMAP password set in AYCD Inbox (Mail > IMAP Service).")
+    return ""
+
+
+def imap_public(cfg: dict) -> dict:
+    """The settings to show on a page: everything but the password."""
+    return {k: cfg[k] for k in ("mode", "host", "port", "ssl", "username", "forwardTo")} | {"saved": bool(cfg["password"])}
 
 
 def imap_open(cfg: dict):
@@ -448,8 +473,9 @@ def imap_open(cfg: dict):
     try:
         return cls(cfg["host"], cfg["port"], timeout=IMAP_TIMEOUT)
     except (OSError, imaplib.IMAP4.error) as e:
-        raise AycdError(f"Couldn't reach AYCD IMAP at {cfg['host']}:{cfg['port']} ({e}). Check the host, port and "
-                        "SSL setting, and that the member's AYCD Inbox is open with its IMAP Server on.") from None
+        hint = ("Check the host, port and SSL setting." if cfg.get("mode") == "custom" else
+                "Check the host, port and SSL setting, and that AYCD Inbox is open with its IMAP Server and UpLink on.")
+        raise AycdError(f"Couldn't reach the IMAP server at {cfg['host']}:{cfg['port']} ({e}). {hint}") from None
 
 
 def imap_login(cfg: dict, account: str):
@@ -459,12 +485,15 @@ def imap_login(cfg: dict, account: str):
             conn.login(account, cfg["password"])
         except imaplib.IMAP4.error as e:
             detail = e.args[0].decode(errors="replace") if e.args and isinstance(e.args[0], bytes) else str(e)
+            if cfg.get("mode") == "custom":
+                raise AycdError(f"The IMAP server wouldn't sign in to {account} ({detail}). Check the username and "
+                                "password (Gmail and iCloud need an app password).") from None
             raise AycdError(f"AYCD IMAP wouldn't sign in to {account} ({detail}). Check the IMAP password, and that "
                             "the account is ticked in AYCD Inbox under Mail > IMAP Service > Configure Accounts.") from None
         # Opening the mailbox is when AYCD syncs the account, so this is the slow step.
         typ, data = conn.select("INBOX", readonly=True)
         if typ != "OK":
-            raise AycdError(f"AYCD IMAP couldn't open the inbox of {account}: {data}")
+            raise AycdError(f"IMAP couldn't open the inbox of {account}: {data}")
     except BaseException:
         imap_logout(conn)
         raise
@@ -572,6 +601,8 @@ def imap_response(message: dict, kind: str) -> dict:
 
 
 def imap_mailbox(c: dict, cfg: dict) -> str:
+    if cfg.get("mode") == "custom":
+        return cfg["username"]
     domain = c["email"].rpartition("@")[2].lower()
     return cfg["forwardTo"] if cfg["forwardTo"] and domain in FORWARD_DOMAINS else c["email"]
 
@@ -617,7 +648,7 @@ def imap_lookup(conn, c: dict, forwarded: bool) -> tuple[dict, dict]:
 
 
 def _imap_check(job: dict, cfg: dict) -> None:
-    job["message"] = "Connecting to AYCD IMAP…"
+    job["message"] = "Connecting to the IMAP server…"
     imap_logout(imap_open(cfg))     # one quick connect first, so a wrong host fails the check at once
     tasks = job["tasks"]
     lock = threading.Lock()
@@ -631,7 +662,7 @@ def _imap_check(job: dict, cfg: dict) -> None:
         c["secs"] = round(time.monotonic() - began)
         with lock:
             tasks["settled"] += 1
-            job["message"] = f"Searching over AYCD IMAP: {tasks['settled']} of {tasks['total']} checkouts done"
+            job["message"] = f"Searching over IMAP: {tasks['settled']} of {tasks['total']} checkouts done"
 
     def search_mailbox(account: str, indices: list[int]) -> None:
         # One sign-in per mailbox, reused for every checkout in it.
@@ -655,11 +686,11 @@ def _imap_check(job: dict, cfg: dict) -> None:
                     try:
                         settle(i, *imap_lookup(conn, c, account.lower() != c["email"].lower()), [], began)
                     except (AycdError, imaplib.IMAP4.error, OSError) as e:
-                        settle(i, None, None, [f"AYCD IMAP search in {account} failed: {e}"], began)
+                        settle(i, None, None, [f"IMAP search in {account} failed: {e}"], began)
                         if isinstance(e, (imaplib.IMAP4.abort, OSError)):
                             # The connection dropped: the rest of this mailbox fails the same way.
                             for j in indices[n + 1:]:
-                                settle(j, None, None, [f"AYCD IMAP connection to {account} dropped: {e}"], began)
+                                settle(j, None, None, [f"IMAP connection to {account} dropped: {e}"], began)
                             return
                     began = time.monotonic()
             finally:
@@ -668,7 +699,7 @@ def _imap_check(job: dict, cfg: dict) -> None:
             with lock:
                 tasks["active"] -= 1
 
-    job["message"] = f"Searching over AYCD IMAP: 0 of {tasks['total']} checkouts done"
+    job["message"] = f"Searching over IMAP: 0 of {tasks['total']} checkouts done"
     # Mailboxes holding the most checkouts (like a shared forwarding inbox) start first.
     ordered = sorted(by_mailbox.items(), key=lambda kv: -len(kv[1]))
     with ThreadPoolExecutor(max_workers=max(1, min(IMAP_WORKERS, len(ordered)))) as pool:

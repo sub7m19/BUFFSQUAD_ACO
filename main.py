@@ -522,6 +522,25 @@ class Handler(SimpleHTTPRequestHandler):
                 raise AppError(400, "Bad request.")
             return self.send_json(200, {"ok": ok, "message": message})
 
+        if route == ("GET", "/api/me/order-check"):
+            user = self.require_user(conn)
+            ready = conn.execute("""SELECT COUNT(*) FROM checkouts WHERE user_id = ? AND result = 'hit'
+                                    AND order_no != '' AND email != ''""", (user["id"],)).fetchone()[0]
+            return self.send_json(200, {"run": order_check.get(conn, user["id"]), "checkable": ready,
+                                        "imap": order_check.imap_public(saved_imap(conn, user["id"]))})
+
+        if route == ("POST", "/api/me/order-check"):
+            user = self.require_user(conn)
+            return self.send_json(200, {"run": start_order_check(conn, user, self.body(), user, by_admin=False)})
+
+        if route == ("POST", "/api/me/order-check/stop"):
+            return self.send_json(200, {"ok": order_check.stop(self.require_user(conn)["id"])})
+
+        if route == ("DELETE", "/api/me/order-check/imap"):
+            user = self.require_user(conn)
+            db.set_secret(conn, user["id"], "order_imap", "imap", None)
+            return self.send_json(200, {"ok": True})
+
         if path.startswith("/api/admin/"):
             return admin_api(self, conn, route[0], path, self.require_admin(conn))
 
@@ -717,6 +736,63 @@ def secret_label(conn, user_id, kind: str, ref: str) -> str:
                 return f"{member['username']}: {store} password for {a.get('email')}"
         return f"{member['username']}: account password {ref}"
     return f"{member['username']}: inbox key"
+
+
+def saved_imap(conn, user_id: int) -> dict:
+    return order_check.imap_config(db.get_secret(conn, user_id, "order_imap", "imap"))
+
+
+def start_order_check(conn, member, body: dict, actor, by_admin: bool) -> dict:
+    """Start an order check of a member's checkouts: by an admin (IMAP or AYCD tasks), or by the member
+    themselves from the Order tracker (IMAP only). The IMAP settings are saved for the member, encrypted."""
+    days = max(1, min(_int(body.get("days")) or 7, 60))
+    retailer = str(body.get("retailer") or "")[:40]
+    template_id = str(body.get("templateId") or "").strip()[:80]
+    source = "imap" if not by_admin or body.get("source") == "imap" else "tasks"   # members: IMAP only
+    if source == "imap":
+        key = order_check.imap_config(body.get("imap"))
+        before = saved_imap(conn, member["id"])
+        # A blank password keeps the saved one, as long as it's the same server and sign-in.
+        if not key["password"] and all(before[k] == key[k] for k in ("mode", "host", "username")):
+            key["password"] = before["password"]
+        problem = order_check.imap_problem(key)
+        if problem:
+            raise AppError(400, problem)
+        db.set_secret(conn, member["id"], "order_imap", "imap", key)
+    else:
+        if ((db.user_settings(member) or {}).get("inbox") or {}).get("method") != "aycd":
+            raise AppError(400, "This member doesn't use an AYCD Inbox key.")
+        key = str(db.get_secret(conn, member["id"], "inbox", "inbox") or "").strip()
+        if not key:
+            raise AppError(400, "This member has no AYCD Inbox key saved.")
+    where, args = "user_id = ? AND result = 'hit' AND created_at >= ?", [member["id"], db.now() - days * 86400]
+    if retailer:
+        where += " AND retailer = ?"
+        args.append(retailer)
+    rows = conn.execute(f"SELECT * FROM checkouts WHERE {where} ORDER BY created_at DESC, id DESC LIMIT 300", args).fetchall()
+    ready = [r for r in rows if r["order_no"].strip() and r["email"].strip()]
+    if not ready:
+        raise AppError(400, "No checkouts in that time have both an order number and an account email to search for."
+                       if rows else "No checkouts in that time.")
+    checkouts = [{"id": r["id"], "product": r["product"] or "Unknown item", "retailer": r["retailer"] or "Unknown",
+                  "order": r["order_no"].strip(), "email": r["email"].strip(), "qty": r["qty"], "price": r["price"],
+                  "stage": r["stage"], "createdAt": r["created_at"], "placedAt": placed_at(r),
+                  "at": r["created_at"] * 1000} for r in ready]
+    options = {"days": days, "retailer": retailer, "templateId": template_id, "skipped": len(rows) - len(ready),
+               "quick": bool(body.get("quick")) and source == "tasks", "source": source,
+               "imapMode": key["mode"] if source == "imap" else None}
+    try:
+        run = order_check.start(key, member["id"], checkouts, options, actor["username"])
+    except order_check.AycdError as e:
+        raise AppError(409, str(e))
+    how = (f"over {'AYCD UpLink' if key['mode'] == 'uplink' else 'custom IMAP'} at {key['host']}" if source == "imap"
+           else "on their AYCD Inbox key")
+    scope = f"{plural_s(len(checkouts), 'checkout')} from the last {plural_s(days, 'day')}{' at ' + retailer if retailer else ''}"
+    if by_admin:
+        db.audit(conn, actor["id"], "order_check.run", f"{member['username']}: {scope}, {how}")
+    else:
+        db.audit(conn, actor["id"], "order_check.self", f"tracked their orders: {scope}, {how}")
+    return run
 
 
 def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
@@ -1223,12 +1299,13 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         rows = conn.execute(
             """SELECT users.*, (SELECT COUNT(*) FROM checkouts WHERE checkouts.user_id = users.id AND result = 'hit'
                                   AND order_no != '' AND email != '') AS checkable
-               FROM users WHERE EXISTS (SELECT 1 FROM secrets WHERE secrets.user_id = users.id AND kind = 'inbox')
+               FROM users WHERE EXISTS (SELECT 1 FROM secrets WHERE secrets.user_id = users.id AND kind IN ('inbox', 'order_imap'))
                ORDER BY COALESCE(NULLIF(display_name, ''), username) COLLATE NOCASE""").fetchall()
         members = []
         for r in rows:
             method_name = ((db.user_settings(r) or {}).get("inbox") or {}).get("method")
-            if method_name == "aycd" and can_open(admin, r):
+            has_imap = bool(db.get_secret(conn, r["id"], "order_imap", "imap"))
+            if (method_name == "aycd" or has_imap) and can_open(admin, r):
                 members.append({"id": r["id"], "name": r["display_name"] or r["username"], "username": r["username"],
                                 "checkable": r["checkable"], "running": order_check.running(r["id"])})
         return h.send_json(200, {"members": members})
@@ -1241,56 +1318,12 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         if not can_open(admin, member):
             db.audit(conn, admin["id"], "blocked.order_check", f"tried to check {member['username']}'s orders")
             return h.send_json(403, {"ok": False, "message": LOCKED})
-        saved_imap = order_check.imap_config(db.get_secret(conn, member["id"], "order_imap", "imap"))
         if method == "GET" and not m_check.group(2):
-            # The member's saved AYCD IMAP settings, all but the password.
-            imap = {k: saved_imap[k] for k in ("host", "port", "ssl", "forwardTo")} | {"saved": bool(saved_imap["password"])}
-            return h.send_json(200, {"run": order_check.get(conn, member["id"]), "imap": imap})
+            return h.send_json(200, {"run": order_check.get(conn, member["id"]), "imap": order_check.imap_public(saved_imap(conn, member["id"]))})
         if method == "POST" and m_check.group(2):
             return h.send_json(200, {"ok": order_check.stop(member["id"])})
         if method == "POST":
-            body = h.body()
-            days = max(1, min(_int(body.get("days")) or 7, 60))
-            retailer = str(body.get("retailer") or "")[:40]
-            template_id = str(body.get("templateId") or "").strip()[:80]
-            source = "imap" if body.get("source") == "imap" else "tasks"
-            if ((db.user_settings(member) or {}).get("inbox") or {}).get("method") != "aycd":
-                raise AppError(400, "This member doesn't use an AYCD Inbox key.")
-            if source == "imap":
-                key = order_check.imap_config(body.get("imap"))
-                key["password"] = key["password"] or saved_imap["password"]
-                if not key["host"] or re.search(r"[\s/]", key["host"]):
-                    raise AppError(400, "Enter the AYCD IMAP host: just the address, like the UpLink host, without http:// or a path.")
-                if not key["password"]:
-                    raise AppError(400, "Enter the IMAP password set in the member's AYCD Inbox (Mail > IMAP Service).")
-                db.set_secret(conn, member["id"], "order_imap", "imap", key)
-            else:
-                key = str(db.get_secret(conn, member["id"], "inbox", "inbox") or "").strip()
-                if not key:
-                    raise AppError(400, "This member has no AYCD Inbox key saved.")
-            where, args = "user_id = ? AND result = 'hit' AND created_at >= ?", [member["id"], db.now() - days * 86400]
-            if retailer:
-                where += " AND retailer = ?"
-                args.append(retailer)
-            rows = conn.execute(f"SELECT * FROM checkouts WHERE {where} ORDER BY created_at DESC, id DESC LIMIT 300", args).fetchall()
-            ready = [r for r in rows if r["order_no"].strip() and r["email"].strip()]
-            if not ready:
-                raise AppError(400, "No checkouts in that time have both an order number and an account email to search for."
-                               if rows else "No checkouts in that time.")
-            checkouts = [{"id": r["id"], "product": r["product"] or "Unknown item", "retailer": r["retailer"] or "Unknown",
-                          "order": r["order_no"].strip(), "email": r["email"].strip(), "qty": r["qty"], "price": r["price"],
-                          "stage": r["stage"], "createdAt": r["created_at"], "placedAt": placed_at(r),
-                          "at": r["created_at"] * 1000} for r in ready]
-            options = {"days": days, "retailer": retailer, "templateId": template_id, "skipped": len(rows) - len(ready),
-                       "quick": bool(body.get("quick")) and source == "tasks", "source": source}
-            try:
-                run = order_check.start(key, member["id"], checkouts, options, admin["username"])
-            except order_check.AycdError as e:
-                raise AppError(409, str(e))
-            db.audit(conn, admin["id"], "order_check.run",
-                     f"{member['username']}: {plural_s(len(checkouts), 'checkout')} from the last {plural_s(days, 'day')}"
-                     f"{' at ' + retailer if retailer else ''}, "
-                     f"{'over AYCD IMAP at ' + key['host'] if source == 'imap' else 'on their AYCD Inbox key'}")
+            run = start_order_check(conn, member, h.body(), admin, by_admin=True)
             return h.send_json(200, {"run": run})
 
     if (method, path) == ("GET", "/api/admin/audit"):

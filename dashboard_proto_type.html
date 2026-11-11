@@ -58,6 +58,7 @@
       <nav class="nav" aria-label="Dashboard">
         <a href="#home" data-route="home"><svg class="icon"><use href="#i-home"/></svg><span>Home</span></a>
         <a href="#checkouts" data-route="checkouts"><svg class="icon"><use href="#i-bag"/></svg><span>Checkouts</span></a>
+        <a href="#orders" data-route="orders"><svg class="icon"><use href="#i-truck"/></svg><span class="hide-sm">Order tracker</span><span class="show-sm">Tracker</span></a>
         <a href="#billing" data-route="billing"><svg class="icon"><use href="#i-card"/></svg><span>Billing</span><b class="nav-badge due" id="nav-billing"></b></a>
         <a href="#profiles" data-route="profiles"><svg class="icon"><use href="#i-user"/></svg><span>Profiles</span></a>
         <a href="#inbox" data-route="inbox"><svg class="icon"><use href="#i-inbox"/></svg><span>Inbox</span></a>
@@ -153,6 +154,107 @@
             <span class="empty-icon"><svg class="icon"><use href="#i-bag"/></svg></span>
             <strong>No checkouts found</strong>
             <span>Join a drop and your orders will show up here.</span>
+          </div>
+        </section>
+      </section>
+
+      <!-- Order tracker -->
+      <section class="view" data-view="orders" aria-labelledby="orders-title" hidden>
+        <header class="page-head">
+          <div>
+            <h1 id="orders-title">Order tracker</h1>
+            <p class="page-sub">Search your retailer emails to see which of your checkouts went through, shipped or got canceled.</p>
+          </div>
+        </header>
+
+        <section class="panel tracker-panel" aria-labelledby="tracker-connect-title">
+          <div class="inbox-head">
+            <h2 class="label" id="tracker-connect-title">Connect your mail</h2>
+            <span class="status" id="tracker-status"></span>
+          </div>
+          <p class="tracker-note"><svg class="icon"><use href="#i-inbox"/></svg><span>For now the order tracker only works directly with <b>Custom IMAP</b> and <b>AYCD UpLink</b>.</span></p>
+
+          <div class="segment" role="group" aria-label="How to connect" id="tracker-mode">
+            <button type="button" aria-pressed="true" data-value="custom">Custom IMAP</button>
+            <button type="button" aria-pressed="false" data-value="uplink">AYCD UpLink</button>
+          </div>
+
+          <form class="inbox-form tracker-form" id="tracker-form">
+            <label class="wide">
+              IMAP host
+              <input name="host" required maxlength="255" autocomplete="off" spellcheck="false" placeholder="imap.gmail.com">
+            </label>
+            <label data-mode="custom" class="wide">
+              Username
+              <input name="username" maxlength="200" autocomplete="off" spellcheck="false" placeholder="The email address of the mailbox">
+            </label>
+            <label>
+              Port
+              <input name="port" type="number" min="1" max="65535" value="993" inputmode="numeric">
+            </label>
+            <label>
+              Connection
+              <select name="ssl">
+                <option value="1">SSL/TLS</option>
+                <option value="0">Plain (no SSL)</option>
+              </select>
+            </label>
+            <label class="wide">
+              <span>Password <small id="tracker-password-note"></small></span>
+              <input name="password" type="password" maxlength="200" autocomplete="new-password" spellcheck="false">
+            </label>
+            <label data-mode="uplink" class="wide" hidden>
+              <span>iCloud aliases forward to <small>optional</small></span>
+              <input name="forwardTo" type="email" maxlength="200" autocomplete="off" placeholder="The Gmail your iCloud aliases forward to">
+            </label>
+            <label>
+              Checkouts from
+              <select name="days">
+                <option value="1">Last 24 hours</option>
+                <option value="3">Last 3 days</option>
+                <option value="7" selected>Last 7 days</option>
+                <option value="14">Last 14 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="60">Last 60 days</option>
+              </select>
+            </label>
+            <label>
+              Retailer
+              <select name="retailer">
+                <option value="">All retailers</option>
+                <option>Target</option>
+                <option>Pokemon Center</option>
+              </select>
+            </label>
+            <p class="field-hint wide" data-mode="custom">One mailbox that gets all your order emails: a catch-all, or the Gmail your accounts forward to. Gmail and iCloud need an app password, not your normal one. We sign in, search for each order number, and never mark anything read.</p>
+            <p class="field-hint wide" data-mode="uplink" hidden>In AYCD Inbox, open <b>Mail &gt; IMAP Service</b>: turn on the IMAP Server, set a password, tick your accounts under <b>Configure Accounts</b>, and use your <b>UpLink host</b> here. Keep AYCD Inbox open while it runs.</p>
+            <p class="field-error wide" id="tracker-error" role="alert" hidden></p>
+            <div class="modal-actions wide">
+              <button class="button ghost" type="button" id="tracker-forget" hidden>Remove saved login</button>
+              <button class="button primary" type="submit" id="tracker-run"><svg class="icon"><use href="#i-search"/></svg>Track orders</button>
+            </div>
+          </form>
+          <p class="modal-note"><svg class="icon"><use href="#i-lock"/></svg><span>Your login is saved encrypted on our server so you can track again later. Remove it any time.</span></p>
+        </section>
+
+        <section class="panel" id="tracker-results" aria-labelledby="tracker-results-title" hidden>
+          <div class="panel-head">
+            <h2 class="label" id="tracker-results-title">Your orders</h2>
+            <span class="panel-count" id="tracker-meta"></span>
+          </div>
+          <div class="tracker-progress" id="tracker-progress" hidden>
+            <div class="tracker-bar"><span id="tracker-bar"></span></div>
+            <span id="tracker-message"></span>
+            <button class="button ghost small" type="button" id="tracker-stop"><svg class="icon"><use href="#i-x"/></svg>Stop</button>
+          </div>
+          <p class="field-error" id="tracker-failed" hidden></p>
+          <div class="tiles tracker-tiles" id="tracker-tiles"></div>
+          <div class="segment tracker-filter" role="group" aria-label="Show" id="tracker-filter"></div>
+          <ul class="checkout-list" id="tracker-list"></ul>
+          <div class="empty" id="tracker-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-search"/></svg></span>
+            <strong>Nothing here</strong>
+            <span>No orders in this group.</span>
           </div>
         </section>
       </section>

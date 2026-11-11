@@ -4195,10 +4195,150 @@ a.tile:hover {
   cursor: progress;
 }
 
-/* Six sidebar items: the phone bottom bar gets a sixth column */
+/* Seven sidebar items: the phone bottom bar gets a column each */
 @media (max-width: 720px) {
   .nav {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+/* Order tracker */
+.tracker-panel {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+  margin-bottom: 18px;
+}
+
+.tracker-panel .segment {
+  justify-self: start;
+}
+
+.tracker-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(35, 206, 217, 0.3);
+  border-radius: var(--radius);
+  background: rgba(35, 206, 217, 0.08);
+  color: var(--soft);
+  font-size: 0.84rem;
+}
+
+.tracker-note .icon {
+  flex: 0 0 auto;
+  color: var(--cyan);
+}
+
+.tracker-note b {
+  color: var(--white);
+}
+
+.tracker-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+
+.tracker-form .wide {
+  grid-column: 1 / -1;
+}
+
+.tracker-form [hidden] {
+  display: none;
+}
+
+.tracker-form label small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.tracker-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--white);
+}
+
+.tracker-form select option {
+  background: var(--ink);
+}
+
+.tracker-form select:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(35, 206, 217, 0.2);
+}
+
+.tracker-form .field-hint {
+  margin-top: 0;
+}
+
+.tracker-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+  color: var(--soft);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.tracker-progress[hidden],
+#tracker-results .field-error[hidden] {
+  display: none;
+}
+
+.tracker-bar {
+  flex: 1 1 220px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.tracker-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--cyan);
+  transition: width 0.4s ease;
+}
+
+.tracker-tiles {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.tracker-filter {
+  margin-bottom: 6px;
+}
+
+.tracker-row .checkout-info span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.tracker-err {
+  color: var(--red);
+}
+
+@media (max-width: 900px) {
+  .tracker-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .tracker-form,
+  .tracker-tiles {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

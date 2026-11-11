@@ -322,30 +322,35 @@
             <label>
               Search with
               <select name="source" id="order-check-source">
-                <option value="imap">AYCD IMAP (fastest)</option>
-                <option value="tasks">AYCD Inbox tasks</option>
+                <option value="uplink">AYCD UpLink (IMAP)</option>
+                <option value="custom">Custom IMAP</option>
+                <option value="tasks">AYCD Inbox tasks (slow)</option>
               </select>
             </label>
-            <label data-source="imap">
-              <span>IMAP host <small>UpLink host</small></span>
-              <input name="imapHost" maxlength="255" autocomplete="off" spellcheck="false" placeholder="From AYCD Inbox, Mail > IMAP Service">
+            <label data-source="uplink custom">
+              IMAP host
+              <input name="imapHost" maxlength="255" autocomplete="off" spellcheck="false" placeholder="UpLink host, or e.g. imap.gmail.com">
             </label>
-            <label data-source="imap">
+            <label data-source="custom">
+              IMAP username
+              <input name="imapUsername" maxlength="200" autocomplete="off" spellcheck="false" placeholder="The mailbox's email address">
+            </label>
+            <label data-source="uplink custom">
               Port
               <input name="imapPort" type="number" min="1" max="65535" value="993" inputmode="numeric">
             </label>
-            <label data-source="imap">
+            <label data-source="uplink custom">
               Connection
               <select name="imapSsl">
                 <option value="1">SSL/TLS</option>
                 <option value="0">Plain (no SSL)</option>
               </select>
             </label>
-            <label data-source="imap">
+            <label data-source="uplink custom">
               IMAP password
               <input name="imapPassword" type="password" maxlength="200" autocomplete="new-password" id="order-check-imap-password">
             </label>
-            <label data-source="imap">
+            <label data-source="uplink">
               <span>iCloud aliases forward to <small>optional</small></span>
               <input name="imapForwardTo" type="email" maxlength="200" autocomplete="off" placeholder="The Gmail they forward to">
             </label>
@@ -363,7 +368,8 @@
             <button class="button primary" type="submit" id="order-check-run"><svg class="icon"><use href="#i-search"/></svg>Check orders</button>
           </form>
           <p class="field-error" id="order-check-error" hidden></p>
-          <p class="field-hint" data-source="imap"><b>AYCD IMAP</b> searches the mail the member's AYCD Inbox already has, so it finds older orders and takes seconds. Turn it on in AYCD Inbox under <b>Mail &gt; IMAP Service</b>: enable the IMAP Server, set a password, tick the accounts under <b>Configure Accounts</b>, and use the <b>UpLink host</b> here (this server can't reach their computer directly). Their AYCD Inbox has to be open. The settings are saved for this member, the password encrypted. Each checkout's confirmation and latest cancel or shipping email are read, and an email only counts if it has that checkout's order number. Every check is logged.</p>
+          <p class="field-hint" data-source="custom"><b>Custom IMAP</b> signs in to one mailbox that gets every checkout's emails (a catch-all, or the Gmail the accounts forward to) and searches it for each order number. Gmail and iCloud need an app password. The settings are saved for this member, the password encrypted, and they're the same ones the member sees in their Order tracker. Every check is logged.</p>
+          <p class="field-hint" data-source="uplink"><b>AYCD UpLink</b> searches the mail the member's AYCD Inbox already has, so it finds older orders and takes seconds. Turn it on in AYCD Inbox under <b>Mail &gt; IMAP Service</b>: enable the IMAP Server, set a password, tick the accounts under <b>Configure Accounts</b>, and use the <b>UpLink host</b> here (this server can't reach their computer directly). Their AYCD Inbox has to be open. The settings are saved for this member, the password encrypted. Each checkout's confirmation and latest cancel or shipping email are read, and an email only counts if it has that checkout's order number. Every check is logged.</p>
           <p class="field-hint" data-source="tasks" hidden>Only members who saved an AYCD Inbox key are listed. Their <b>AYCD Inbox app has to be open</b> while the check runs: AYCD does the searching on their computer. Each checkout gets two searches, the order confirmation and any cancel or shipping email, and an email only counts if it has that checkout's order number. <b>Confirmations only</b> skips the second search, so it can't spot canceled orders. Tasks only see mail that arrives while they run, so they can miss older emails: use IMAP if you can. Every check is logged.</p>
         </section>
 

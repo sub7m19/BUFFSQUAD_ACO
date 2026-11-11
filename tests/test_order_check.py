@@ -359,7 +359,8 @@ class ImapCheckTest(ServerCase):
         self.assertTrue(all(a[0] == "SINCE" for a in FakeImap.seen))
 
         # The settings are kept for next time, but the password never comes back.
-        self.assertEqual(got["imap"], {"host": "uplink.example", "port": 993, "ssl": True, "forwardTo": "fwd@gmail.com", "saved": True})
+        self.assertEqual(got["imap"], {"mode": "uplink", "host": "uplink.example", "port": 993, "ssl": True, "username": "",
+                                      "forwardTo": "fwd@gmail.com", "saved": True})
         self.assertNotIn("imap-pass", json.dumps(got))
         status, body, _ = admin.request("POST", f"/api/admin/order-check/{user_id}",
                                         {"days": 7, "source": "imap", "imap": {**imap, "password": ""}})
@@ -389,6 +390,45 @@ class ImapCheckTest(ServerCase):
         run = self.wait(admin, user_id)["run"]
         self.assertEqual(run["status"], "failed")
         self.assertIn("Couldn't reach", run["message"])
+
+    def test_members_track_their_own_orders_over_custom_imap(self):
+        user_id = self.member("otrack")
+        with db.transaction() as conn:
+            for order, mail in (("912000000000007", "alias@icloud.com"), ("912000000000001", "a@x.com")):
+                db.record_checkout(conn, {"retailer": "Target", "product": "Box", "order": order, "email": mail, "price": 50},
+                                   user_id=user_id, notify=False)
+        me = self.client().login("otrack")
+        status, body, _ = me.request("GET", "/api/me/order-check")
+        self.assertEqual((status, body["checkable"], body["run"]), (200, 2, None))
+        # Custom IMAP: one mailbox (here the Gmail everything forwards to) holds every checkout's mail.
+        imap = {"mode": "custom", "host": "imap.gmail.com", "username": "fwd@gmail.com", "password": "imap-pass"}
+        status, body, _ = me.request("POST", "/api/me/order-check", {"days": 7, "source": "tasks", "imap": imap})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["run"]["options"]["source"], "imap")     # members can't start AYCD tasks
+        for _ in range(200):
+            _, got, _ = me.request("GET", "/api/me/order-check")
+            if got["run"]["status"] != "running":
+                break
+            time.sleep(0.05)
+        out = {r["order"]: r["outcome"] for r in got["run"]["results"]}
+        self.assertEqual(out, {"912000000000007": "confirmed", "912000000000001": "not_found"})
+        self.assertEqual(got["imap"]["username"], "fwd@gmail.com")
+        self.assertNotIn("imap-pass", json.dumps(got))
+        # The same settings show for an admin.
+        admin = self.owner()
+        _, listing, _ = admin.request("GET", "/api/admin/order-check")
+        self.assertIn(user_id, [m["id"] for m in listing["members"]])
+        # A member can take their IMAP settings off the site.
+        self.assertEqual(me.request("DELETE", "/api/me/order-check/imap")[0], 200)
+        self.assertFalse(me.request("GET", "/api/me/order-check")[1]["imap"]["saved"])
+        # Custom IMAP needs a username.
+        status, body, _ = me.request("POST", "/api/me/order-check", {"imap": {**imap, "username": ""}})
+        self.assertEqual(status, 400)
+        self.assertIn("username", body["message"])
+
+    def test_tracker_needs_sign_in(self):
+        status, _, _ = self.client().request("GET", "/api/me/order-check")
+        self.assertIn(status, (401, 302))
 
 
 if __name__ == "__main__":
