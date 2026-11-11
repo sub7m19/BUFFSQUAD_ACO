@@ -468,6 +468,50 @@ async def catch_up(channel_ids) -> None:
             log.info("Caught up on %d checkout(s) in #%s", new, channel.name)
 
 
+async def backfill_photos() -> None:
+    """Fills in the product photo on checkouts logged before the bot saved photos, from
+    their webhooks still in the channel, so the drop recap card shows them. Reads each
+    channel's history once, 100 messages a request, across the span of those checkouts;
+    once a pass finishes it doesn't run again."""
+    with db.transaction() as conn:
+        if db.kv_get(conn, "photo_backfill_v1"):
+            return
+        rows = conn.execute(
+            """SELECT id, channel_id, message_key FROM checkouts
+               WHERE image_url = '' AND result = 'hit' AND message_key LIKE '%:%' AND channel_id != ''""").fetchall()
+    wanted: dict[int, dict[int, list[tuple[int, int]]]] = {}  # channel -> message id -> [(checkout id, index)]
+    for r in rows:
+        message_id, _, index = r["message_key"].partition(":")
+        if message_id.isdigit() and index.isdigit() and str(r["channel_id"]).isdigit():
+            wanted.setdefault(int(r["channel_id"]), {}).setdefault(int(message_id), []).append((r["id"], int(index)))
+    filled = 0
+    for channel_id, messages in wanted.items():
+        channel = client.get_channel(channel_id)
+        if channel is None or not channel_status(channel_id)["ok"]:
+            log.warning("Can't read channel %s for old product photos; skipping it.", channel_id)
+            continue
+        try:
+            async for message in channel.history(limit=None, after=discord.Object(id=min(messages) - 1),
+                                                 before=discord.Object(id=max(messages) + 1), oldest_first=True):
+                targets = messages.get(message.id)
+                if not targets:
+                    continue
+                # The key's index counts the checkouts parsed from the message, the same as when it was logged.
+                parsed = parse_message(message_dict(message))
+                with db.transaction() as conn:
+                    for checkout_id, index in targets:
+                        image = parsed[index].get("image") if index < len(parsed) else ""
+                        if image:
+                            conn.execute("UPDATE checkouts SET image_url = ? WHERE id = ? AND image_url = ''", (image, checkout_id))
+                            filled += 1
+        except discord.HTTPException as e:
+            log.warning("Stopped reading #%s for old product photos: %s", getattr(channel, "name", channel_id), e)
+            return  # try the whole pass again next start
+    with db.transaction() as conn:
+        db.kv_set(conn, "photo_backfill_v1", db.now())
+    log.info("Filled in product photos on %d older checkout(s)", filled)
+
+
 async def refresh_channels() -> None:
     """Picks up channels added or removed on the admin panel, and reports each one's status."""
     with db.transaction() as conn:
@@ -509,6 +553,14 @@ async def on_ready():
     if not getattr(client, "heartbeat_started", False):
         client.heartbeat_started = True
         client.loop.create_task(heartbeat())
+        client.loop.create_task(run_backfill_photos())
+
+
+async def run_backfill_photos() -> None:
+    try:
+        await backfill_photos()
+    except Exception:  # A failed pass leaves the flag unset, so the next start tries again.
+        log.exception("Filling in old product photos failed")
 
 
 @client.event

@@ -1364,10 +1364,16 @@ def render_png(
     theme: str = "titanium",
     title: str | None = None,
     scene_class: type[ShareStatsScene] | None = None,
+    info: dict[str, Any] | None = None,
 ) -> BytesIO:
+    """The card as a PNG. Pass info to learn how many products it has and how many got a photo."""
     from PIL import Image
 
     scene = (scene_class or BetaShareStatsScene)(stats, cards or CARDS, theme, title)
+    if info is not None:
+        images = getattr(scene, "images", [])
+        info.update(products=len(scene.items), photos=sum(1 for image in images if image is not None),
+                    linked=sum(1 for item in scene.items if item.get("image")))
     still = render_share_scene_still(scene, scene.build_base(), {"intro": None, "shimmer": None, "pulse": 0.0}).convert("RGB").resize((SHARE_W * 2, scene.height * 2), Image.Resampling.LANCZOS)
     output = BytesIO()
     still.save(output, format="PNG", optimize=True)

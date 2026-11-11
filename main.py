@@ -1283,8 +1283,11 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         stats = db.recap_card_stats(conn, start, end, recap_tz(q("tz")))
         if not stats["checkouts"]:
             raise AppError(400, "No successful checkouts in that time.")
-        png = recap_card.render_png(stats, theme=recap_theme(q("theme")), title=q("title")).getvalue()
-        return h.respond(200, [("Content-Type", "image/png"), ("Cache-Control", "no-store")], png)
+        info = {}
+        png = recap_card.render_png(stats, theme=recap_theme(q("theme")), title=q("title"), info=info).getvalue()
+        # How many products have a photo saved, and how many of those loaded, for the note under the preview.
+        photos = f"{info['photos']}/{info['linked']}/{info['products']}"
+        return h.respond(200, [("Content-Type", "image/png"), ("Cache-Control", "no-store"), ("X-Card-Photos", photos)], png)
 
     if (method, path) == ("POST", "/api/admin/recap"):
         body = h.body()

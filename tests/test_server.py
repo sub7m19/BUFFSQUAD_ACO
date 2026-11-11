@@ -460,6 +460,8 @@ class ServerTest(ServerCase):
         span = f"from={start * 1000}&to={(start + 3 * 3600) * 1000}"
         status, body, headers = admin.request("GET", f"/api/admin/recap/card.png?{span}&tz=300&theme=neon&title=Friday")
         self.assertEqual((status, headers["Content-Type"], body[1:4]), (200, "image/png", b"PNG"))
+        # loaded/saved/products: the ETB has a photo saved, but its host never resolves, so it didn't load.
+        self.assertEqual(headers["X-Card-Photos"], "0/1/1")
         self.assertEqual(self.client().login("rio").request("GET", f"/api/admin/recap/card.png?{span}")[0], 403)
         self.assertEqual(admin.request("GET", f"/api/admin/recap/card.png?from={(start - 7200) * 1000}&to={(start - 3600) * 1000}")[0], 400)
         _, recap, _ = admin.request("GET", f"/api/admin/recap?{span}")

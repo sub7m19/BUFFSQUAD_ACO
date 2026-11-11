@@ -1412,17 +1412,29 @@ function loadRecapCard() {
     theme: recapForm.elements.theme.value, title: recapForm.elements.title.value.trim() });
   note.textContent = "Drawing the card…";
   img.style.opacity = "0.4";
-  const next = new Image();
-  next.onload = () => {
+  fetch(`/api/admin/recap/card.png?${params}`, { credentials: "same-origin" }).then(async (res) => {
+    if (!res.ok) throw new Error();
+    const blob = await res.blob();
     if (seq !== recapCardSeq) return;
-    img.src = next.src;
+    if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+    img.src = URL.createObjectURL(blob);
     img.style.opacity = "";
-    note.textContent = recapForm.elements.card.value === "gif" ? "The GIF animates in and ends on this." : "Posts under the recap.";
-  };
-  next.onerror = () => {
+    note.textContent = `${recapForm.elements.card.value === "gif" ? "The GIF animates in and ends on this." : "Posts under the recap."} ${photoNote(res.headers.get("X-Card-Photos"))}`;
+  }).catch(() => {
     if (seq === recapCardSeq) note.textContent = "Couldn't draw the card. The recap still posts.";
-  };
-  next.src = `/api/admin/recap/card.png?${params}`;
+  });
+}
+
+// Why a product shows a letter instead of its photo: the webhook had none saved, or the photo didn't load.
+function photoNote(header) {
+  const [loaded, linked, products] = String(header || "").split("/").map(Number);
+  if (!products) return "";
+  if (loaded === products) return products === 1 ? "The product has its photo." : `All ${products} products have photos.`;
+  const missing = products - linked;
+  const parts = [];
+  if (missing) parts.push(`${missing} of ${plural(products, "product")} had no photo in the checkout webhook`);
+  if (linked > loaded) parts.push(`${linked - loaded} photo${linked - loaded === 1 ? "" : "s"} didn't load`);
+  return `${parts.join("; ")}, so ${missing + linked - loaded === 1 ? "it shows" : "they show"} a letter instead.`;
 }
 
 function recapText() {
