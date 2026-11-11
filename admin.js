@@ -737,13 +737,16 @@ async function openMemberModal(id) {
   // The server says who can be turned off: never yourself, and other admins only by the owner.
   byId("member-toggle").hidden = !m.canDisable;
 
-  const section = (title, count, body, tools = "") => `
-    <section class="m-section">
+  // Each section folds up from its title; what's folded stays folded for the next member too.
+  const folded = memberFolded();
+  const section = (key, title, count, body, tools = "") => `
+    <section class="m-section ${folded.has(key) ? "folded" : ""}" data-section="${key}">
       <div class="m-head">
-        <h3 class="label">${title}${count === null ? "" : ` <b>${count}</b>`}</h3>
+        <h3 class="label"><button class="m-fold" type="button" aria-expanded="${!folded.has(key)}" aria-controls="m-body-${key}">
+          <svg class="icon"><use href="#i-down"/></svg>${title}${count === null ? "" : ` <b>${count}</b>`}</button></h3>
         ${tools}
       </div>
-      ${body}
+      <div class="m-body" id="m-body-${key}">${body}</div>
     </section>`;
   const empty = (ic, text) => `<div class="m-empty"><span class="empty-icon">${icon(ic)}</span><span>${text}</span></div>`;
 
@@ -845,16 +848,63 @@ async function openMemberModal(id) {
   const locked = m.locked ? empty("lock", escape(m.locked)) : "";
   byId("member-body").innerHTML = [
     stats,
-    section("Profiles", m.locked ? m.profiles : profiles.length, locked || profileHtml, locked ? "" : downloads),
-    section("Retailer accounts", m.locked ? m.accounts : Object.values(accounts).reduce((n, list) => n + (list ? list.length : 0), 0), locked || accountHtml, locked ? "" : accountDownloads),
-    m.locked ? "" : section("Inbox & notifications", null, connections),
-    section("Checkouts", m.checkouts.length, m.checkouts.length
+    `<div class="m-fold-all"><button class="button ghost small" type="button" data-fold-all></button></div>`,
+    section("profiles", "Profiles", m.locked ? m.profiles : profiles.length, locked || profileHtml, locked ? "" : downloads),
+    section("accounts", "Retailer accounts", m.locked ? m.accounts : Object.values(accounts).reduce((n, list) => n + (list ? list.length : 0), 0), locked || accountHtml, locked ? "" : accountDownloads),
+    m.locked ? "" : section("connections", "Inbox &amp; notifications", null, connections),
+    section("checkouts", "Checkouts", m.checkouts.length, m.checkouts.length
       ? `<ul class="checkout-list">${m.checkouts.map((c) => checkoutRow(c)).join("")}</ul>`
       : empty("bag", "No checkouts yet.")),
   ].join("");
+  syncFoldAll();
   byId("member-body").scrollTop = 0;
   if (!memberModal.open) memberModal.showModal();
 }
+
+// Folded member sections, remembered in this browser (and fine without it).
+function memberFolded() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem("memberFolded") || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveMemberFolded() {
+  const keys = [...document.querySelectorAll("#member-body .m-section.folded")].map((s) => s.dataset.section);
+  try {
+    localStorage.setItem("memberFolded", JSON.stringify(keys));
+  } catch {}
+}
+
+function foldSection(sec, fold) {
+  sec.classList.toggle("folded", fold);
+  sec.querySelector(".m-fold").setAttribute("aria-expanded", String(!fold));
+}
+
+// "Collapse all" while anything is open; "Expand all" once everything is folded.
+function syncFoldAll() {
+  const btn = document.querySelector("#member-body [data-fold-all]");
+  const sections = [...document.querySelectorAll("#member-body .m-section")];
+  const allFolded = sections.length && sections.every((s) => s.classList.contains("folded"));
+  btn.innerHTML = `${icon(allFolded ? "down" : "up")}${allFolded ? "Expand all" : "Collapse all"}`;
+  btn.dataset.foldAll = allFolded ? "open" : "fold";
+}
+
+byId("member-body").addEventListener("click", (e) => {
+  const toggle = e.target.closest(".m-fold");
+  const all = e.target.closest("[data-fold-all]");
+  if (!toggle && !all) return;
+  if (toggle) {
+    const sec = toggle.closest(".m-section");
+    foldSection(sec, !sec.classList.contains("folded"));
+  } else {
+    const fold = all.dataset.foldAll === "fold";
+    document.querySelectorAll("#member-body .m-section").forEach((sec) => foldSection(sec, fold));
+  }
+  saveMemberFolded();
+  syncFoldAll();
+});
 
 byId("member-sub").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-copy]");

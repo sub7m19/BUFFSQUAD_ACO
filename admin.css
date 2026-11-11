@@ -628,6 +628,52 @@
   letter-spacing: 0.14em;
 }
 
+/* The section title folds its section up. */
+.m-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.m-fold:hover {
+  color: var(--white);
+}
+
+.m-fold .icon {
+  width: 14px;
+  height: 14px;
+  transition: transform 160ms ease;
+}
+
+.m-section.folded .m-fold .icon {
+  transform: rotate(-90deg);
+}
+
+.m-section.folded .m-body,
+.m-section.folded .m-head .m-tools {
+  display: none;
+}
+
+.m-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.m-fold-all {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -6px;
+}
+
 .m-head .label b {
   margin-left: 4px;
   padding: 1px 7px;
