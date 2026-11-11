@@ -1581,11 +1581,33 @@ async function loadOrderCheck() {
   }
 }
 
+// Show the fields for the chosen way of searching.
+function showOrderSource() {
+  const source = byId("order-check-source").value;
+  document.querySelectorAll('[data-view="orders"] [data-source]').forEach((el) => { el.hidden = el.dataset.source !== source; });
+}
+byId("order-check-source").addEventListener("change", showOrderSource);
+showOrderSource();
+
+// Fill in the member's saved AYCD IMAP settings (never the password itself).
+function fillOrderImap(imap) {
+  const f = orderForm.elements;
+  if (!imap || orderCheck.imapFor === f.userId.value) return;
+  orderCheck.imapFor = f.userId.value;
+  f.imapHost.value = imap.host || "";
+  f.imapPort.value = imap.port || 993;
+  f.imapSsl.value = imap.ssl === false ? "0" : "1";
+  f.imapForwardTo.value = imap.forwardTo || "";
+  f.imapPassword.value = "";
+  f.imapPassword.placeholder = imap.saved ? "Saved: leave blank to keep it" : "Set in AYCD Inbox";
+}
+
 async function loadOrderRun() {
   const id = byId("order-check-member").value;
   if (!id) return;
-  const { run } = await api("GET", `/api/admin/order-check/${id}`);
+  const { run, imap } = await api("GET", `/api/admin/order-check/${id}`);
   if (byId("order-check-member").value !== id) return;
+  fillOrderImap(imap);
   orderCheck.run = run;
   if (run) orderCheck.offset = run.serverNow - Date.now();
   renderOrderRun();
@@ -1653,7 +1675,7 @@ function renderOrderRun() {
   byId("order-check-failed").textContent = run.message;
   const o = run.options || {};
   byId("order-check-meta").textContent = `${plural(run.results.length, "checkout")} from the last ${plural(o.days, "day")}${o.retailer ? ` at ${o.retailer}` : ""}`
-    + `${o.quick ? " · confirmations only" : ""}${run.secondLook ? ` · second look at ${run.secondLook} with no email` : ""}${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}`
+    + `${o.source === "imap" ? " · over AYCD IMAP" : ""}${o.quick ? " · confirmations only" : ""}${run.secondLook ? ` · second look at ${run.secondLook} with no email` : ""}${o.skipped ? ` · ${o.skipped} skipped (no order # or email)` : ""} · by ${run.by} ${ago(run.startedAt)}`
     + `${busy ? "" : ` · took ${duration(runSecs(run))}`}${run.status === "stopped" ? " · stopped" : ""}`;
   tickOrderTimer();
   byId("order-check-tiles").innerHTML = orderTiles(run);
@@ -1691,7 +1713,16 @@ orderForm.addEventListener("submit", async (e) => {
   try {
     const { run } = await api("POST", `/api/admin/order-check/${f.userId.value}`, {
       days: Number(f.days.value), retailer: f.retailer.value, templateId: f.templateId.value.trim(), quick: f.quick.value === "1",
+      source: f.source.value,
+      imap: f.source.value === "imap" ? {
+        host: f.imapHost.value.trim(), port: Number(f.imapPort.value) || 993, ssl: f.imapSsl.value === "1",
+        password: f.imapPassword.value, forwardTo: f.imapForwardTo.value.trim(),
+      } : undefined,
     });
+    if (f.source.value === "imap" && f.imapPassword.value) {
+      f.imapPassword.value = "";
+      f.imapPassword.placeholder = "Saved: leave blank to keep it";
+    }
     orderCheck.run = run;
     orderCheck.filter = "all";
     renderOrderRun();

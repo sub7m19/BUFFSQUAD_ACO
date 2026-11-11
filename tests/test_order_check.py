@@ -226,5 +226,170 @@ class OrderCheckTest(ServerCase):
         self.assertEqual(order_check.outcome(c, timed, broken, [])["outcome"], "error")
 
 
+def raw_email(subject, body, sent, to="a@x.com", html_body=None):
+    from email.message import EmailMessage
+    from email.utils import formatdate
+    m = EmailMessage()
+    m["Subject"], m["From"], m["To"], m["Date"] = subject, "Target <orders@oe1.target.com>", to, formatdate(sent)
+    m.set_content(body)
+    if html_body:
+        m.add_alternative(html_body, subtype="html")
+    return m.as_bytes()
+
+
+class FakeImap:
+    """Stands in for AYCD Inbox's IMAP Server: a mailbox per account, one password."""
+    boxes: dict = {}
+    password = "imap-pass"
+    seen: list = []
+
+    def __init__(self, cfg):
+        self.account = None
+
+    def login(self, account, password):
+        if password != self.password or account not in self.boxes:
+            import imaplib
+            raise imaplib.IMAP4.error(b"Invalid credentials")
+        self.account = account
+
+    def select(self, box, readonly=False):
+        assert readonly
+        return "OK", [str(len(self.boxes[self.account])).encode()]
+
+    def logout(self):
+        pass
+
+    def uid(self, command, *args):
+        import email as email_mod
+        from email import policy
+        box = self.boxes[self.account]
+        if command == "SEARCH":
+            FakeImap.seen.append(args)
+            pairs = dict(zip(args[::2], args[1::2]))
+            hits = []
+            for n, raw in enumerate(box, 1):
+                m = email_mod.message_from_bytes(raw, policy=policy.default)
+                body = "\n".join(p.get_content() for p in m.walk() if p.get_content_maintype() == "text")
+                text = {"SUBJECT": m["Subject"], "FROM": m["From"], "TO": m["To"], "BODY": body}
+                if all(v.strip('"').lower() in str(text[k]).lower() for k, v in pairs.items() if k != "SINCE"):
+                    hits.append(str(n).encode())
+            return "OK", [b" ".join(hits)]
+        uids, what = args
+        data = []
+        for u in uids.split(","):
+            raw = box[int(u) - 1]
+            if "HEADER.FIELDS" in what:
+                raw = raw.replace(b"\r\n", b"\n").split(b"\n\n", 1)[0] + b"\n\n"
+            data += [(f"{u} (UID {u} BODY[] {{{len(raw)}}}".encode(), raw), b")"]
+        return "OK", data
+
+
+class ImapCheckTest(ServerCase):
+    def setUp(self):
+        self.old_open = order_check.imap_open
+        order_check.imap_open = lambda cfg: FakeImap(cfg)
+        now = int(time.time())
+        FakeImap.seen = []
+        FakeImap.boxes = {
+            "a@x.com": [
+                # Older than the run: Inbox tasks never see these, IMAP does.
+                raw_email("Thanks for shopping with us! Here's your order #:912000000000001.",
+                          "Order #912000000000001\nOrder total\n$96.39", now - 3000),
+                raw_email("Here's your order #:912000000000002.", "Order #912000000000002\nTotal $48.20", now - 3000),
+                raw_email("Your order #912000000000002 has been canceled", "Order #912000000000002", now - 2000),
+                raw_email("Here's your order #:912000000000003.", "Order #912000000000003", now - 3000),
+                raw_email("Items from order #912000000000003 have shipped",
+                          "Order #912000000000003\nTracking number 1Z999AA10123456784", now - 1000),
+            ],
+            "fwd@gmail.com": [
+                raw_email("Here's your order #:912000000000007.", "", now - 3000, to="alias@icloud.com",
+                          html_body="<p>Order&nbsp;#912000000000007</p><table><tr><td>Order total</td><td>$12.50</td></tr></table>"),
+            ],
+        }
+
+    def tearDown(self):
+        order_check.imap_open = self.old_open
+
+    def member(self, name):
+        c = self.client().login(name)
+        settings = {**json.loads(json.dumps(SETTINGS)), "profiles": [], "accounts": {}, "inbox": {"method": "aycd", "email": ""}}
+        self.assertEqual(c.request("PUT", "/api/me/settings", settings)[0], 200)
+        self.assertEqual(c.request("POST", "/api/me/secret", {"kind": "inbox", "ref": "inbox", "value": "good-key"})[0], 200)
+        with db.transaction() as conn:
+            return conn.execute("SELECT id FROM users WHERE discord_id = ?", (f"dev-{name}",)).fetchone()["id"]
+
+    def wait(self, admin, user_id):
+        for _ in range(200):
+            _, body, _ = admin.request("GET", f"/api/admin/order-check/{user_id}")
+            if body["run"]["status"] != "running":
+                return body
+            time.sleep(0.05)
+        self.fail("check never finished")
+
+    def test_imap_check_reads_mail_already_in_the_inbox(self):
+        user_id = self.member("oimap")
+        with db.transaction() as conn:
+            for order, mail in (("912000000000001", "a@x.com"), ("912000000000002", "a@x.com"), ("912000000000003", "a@x.com"),
+                                ("912000000000009", "a@x.com"), ("912000000000007", "alias@icloud.com"),
+                                ("912000000000008", "nobody@x.com")):
+                db.record_checkout(conn, {"retailer": "Target", "product": "Box", "order": order, "email": mail, "price": 50},
+                                   user_id=user_id, notify=False)
+        admin = self.owner()
+        imap = {"host": "uplink.example", "port": 993, "ssl": True, "password": "imap-pass", "forwardTo": "fwd@gmail.com"}
+        status, body, _ = admin.request("POST", f"/api/admin/order-check/{user_id}", {"days": 7, "source": "imap", "imap": imap})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["run"]["tasks"]["total"], 6)
+        self.assertNotIn("imap-pass", json.dumps(body))
+        got = self.wait(admin, user_id)
+        run = got["run"]
+        self.assertEqual(run["status"], "done", run["message"])
+        out = {r["order"]: r for r in run["results"]}
+        self.assertEqual(out["912000000000001"]["outcome"], "confirmed")
+        self.assertEqual(out["912000000000001"]["emailTotal"], 96.39)    # label and amount on separate lines
+        self.assertEqual(out["912000000000002"]["outcome"], "canceled")
+        self.assertEqual(out["912000000000003"]["outcome"], "shipped")
+        self.assertEqual(out["912000000000003"]["tracking"], "1Z999AA10123456784")
+        self.assertEqual(out["912000000000009"]["outcome"], "not_found")
+        # The iCloud alias was found in the mailbox it forwards to, from an HTML-only email.
+        self.assertEqual(out["912000000000007"]["outcome"], "confirmed")
+        self.assertEqual(out["912000000000007"]["emailTotal"], 12.5)
+        # An account not set up in AYCD's IMAP Service is an error that says what to fix.
+        self.assertEqual(out["912000000000008"]["outcome"], "error")
+        self.assertIn("Configure Accounts", out["912000000000008"]["error"])
+        self.assertTrue(all(a[0] == "SINCE" for a in FakeImap.seen))
+
+        # The settings are kept for next time, but the password never comes back.
+        self.assertEqual(got["imap"], {"host": "uplink.example", "port": 993, "ssl": True, "forwardTo": "fwd@gmail.com", "saved": True})
+        self.assertNotIn("imap-pass", json.dumps(got))
+        status, body, _ = admin.request("POST", f"/api/admin/order-check/{user_id}",
+                                        {"days": 7, "source": "imap", "imap": {**imap, "password": ""}})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.wait(admin, user_id)["run"]["summary"]["stuck"], 3)   # 001, 003, 007
+
+    def test_imap_check_needs_a_host_and_password(self):
+        user_id = self.member("oimapbad")
+        with db.transaction() as conn:
+            db.record_checkout(conn, {"retailer": "Target", "order": "912000000000001", "email": "a@x.com"},
+                               user_id=user_id, notify=False)
+        admin = self.owner()
+        status, body, _ = admin.request("POST", f"/api/admin/order-check/{user_id}",
+                                        {"source": "imap", "imap": {"host": "", "password": "x"}})
+        self.assertEqual(status, 400)
+        status, body, _ = admin.request("POST", f"/api/admin/order-check/{user_id}", {"source": "imap", "imap": {"host": "h.example"}})
+        self.assertEqual(status, 400)
+        self.assertIn("IMAP password", body["message"])
+
+        # A host that can't be reached fails the whole check at once.
+        def unreachable(cfg):
+            raise order_check.AycdError("Couldn't reach AYCD IMAP at h.example:993")
+        order_check.imap_open = unreachable
+        status, body, _ = admin.request("POST", f"/api/admin/order-check/{user_id}",
+                                        {"source": "imap", "imap": {"host": "h.example", "password": "x"}})
+        self.assertEqual(status, 200, body)
+        run = self.wait(admin, user_id)["run"]
+        self.assertEqual(run["status"], "failed")
+        self.assertIn("Couldn't reach", run["message"])
+
+
 if __name__ == "__main__":
     unittest.main()

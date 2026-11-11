@@ -1241,8 +1241,11 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         if not can_open(admin, member):
             db.audit(conn, admin["id"], "blocked.order_check", f"tried to check {member['username']}'s orders")
             return h.send_json(403, {"ok": False, "message": LOCKED})
+        saved_imap = order_check.imap_config(db.get_secret(conn, member["id"], "order_imap", "imap"))
         if method == "GET" and not m_check.group(2):
-            return h.send_json(200, {"run": order_check.get(conn, member["id"])})
+            # The member's saved AYCD IMAP settings, all but the password.
+            imap = {k: saved_imap[k] for k in ("host", "port", "ssl", "forwardTo")} | {"saved": bool(saved_imap["password"])}
+            return h.send_json(200, {"run": order_check.get(conn, member["id"]), "imap": imap})
         if method == "POST" and m_check.group(2):
             return h.send_json(200, {"ok": order_check.stop(member["id"])})
         if method == "POST":
@@ -1250,11 +1253,21 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
             days = max(1, min(_int(body.get("days")) or 7, 60))
             retailer = str(body.get("retailer") or "")[:40]
             template_id = str(body.get("templateId") or "").strip()[:80]
+            source = "imap" if body.get("source") == "imap" else "tasks"
             if ((db.user_settings(member) or {}).get("inbox") or {}).get("method") != "aycd":
                 raise AppError(400, "This member doesn't use an AYCD Inbox key.")
-            key = str(db.get_secret(conn, member["id"], "inbox", "inbox") or "").strip()
-            if not key:
-                raise AppError(400, "This member has no AYCD Inbox key saved.")
+            if source == "imap":
+                key = order_check.imap_config(body.get("imap"))
+                key["password"] = key["password"] or saved_imap["password"]
+                if not key["host"] or re.search(r"[\s/]", key["host"]):
+                    raise AppError(400, "Enter the AYCD IMAP host: just the address, like the UpLink host, without http:// or a path.")
+                if not key["password"]:
+                    raise AppError(400, "Enter the IMAP password set in the member's AYCD Inbox (Mail > IMAP Service).")
+                db.set_secret(conn, member["id"], "order_imap", "imap", key)
+            else:
+                key = str(db.get_secret(conn, member["id"], "inbox", "inbox") or "").strip()
+                if not key:
+                    raise AppError(400, "This member has no AYCD Inbox key saved.")
             where, args = "user_id = ? AND result = 'hit' AND created_at >= ?", [member["id"], db.now() - days * 86400]
             if retailer:
                 where += " AND retailer = ?"
@@ -1269,14 +1282,15 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
                           "stage": r["stage"], "createdAt": r["created_at"], "placedAt": placed_at(r),
                           "at": r["created_at"] * 1000} for r in ready]
             options = {"days": days, "retailer": retailer, "templateId": template_id, "skipped": len(rows) - len(ready),
-                       "quick": bool(body.get("quick"))}
+                       "quick": bool(body.get("quick")) and source == "tasks", "source": source}
             try:
                 run = order_check.start(key, member["id"], checkouts, options, admin["username"])
             except order_check.AycdError as e:
                 raise AppError(409, str(e))
             db.audit(conn, admin["id"], "order_check.run",
                      f"{member['username']}: {plural_s(len(checkouts), 'checkout')} from the last {plural_s(days, 'day')}"
-                     f"{' at ' + retailer if retailer else ''}, on their AYCD Inbox key")
+                     f"{' at ' + retailer if retailer else ''}, "
+                     f"{'over AYCD IMAP at ' + key['host'] if source == 'imap' else 'on their AYCD Inbox key'}")
             return h.send_json(200, {"run": run})
 
     if (method, path) == ("GET", "/api/admin/audit"):

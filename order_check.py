@@ -9,13 +9,23 @@ changed; the results are just shown to the admin.
 
 Ported from the AYCD scraper in proxy_webhook. AYCD runs the tasks in the
 member's AYCD Inbox app, so that app has to be open while the check runs.
+
+Or, much faster, over AYCD Inbox's own IMAP Server (Mail > IMAP Service, reached
+through its UpLink host): that serves the mail Inbox already has, so each lookup
+is a quick search of the mailbox rather than a task that waits for new mail.
 """
+import email
+import html
+import imaplib
 import json
 import re
 import secrets
 import threading
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from email import policy as email_policy
+from email.utils import parsedate_to_datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -293,7 +303,9 @@ def start(key: str, user_id: int, checkouts: list[dict], options: dict, by: str)
         job = {
             "id": secrets.token_hex(4), "userId": user_id, "status": "running", "message": "Connecting to AYCD…",
             "options": options, "by": by, "startedAt": int(time.time() * 1000), "finishedAt": None,
-            "tasks": {"total": len(checkouts) * len(kinds(options)), "settled": 0, "active": 0},
+            # Over IMAP both emails come from one lookup, so it counts checkouts rather than searches.
+            "tasks": {"total": len(checkouts) * (1 if options.get("source") == "imap" else len(kinds(options))),
+                      "settled": 0, "active": 0},
             "results": [{**c, "outcome": None} for c in checkouts],
             "_stop": threading.Event(),
         }
@@ -311,16 +323,13 @@ def stop(user_id: int) -> bool:
     return True
 
 
-def _run(job: dict, key: str) -> None:
+def _run(job: dict, key) -> None:
+    """key is the member's AYCD key, or for an IMAP check the IMAP settings (imap_config)."""
     try:
-        aycd(key, "GET", "/api/v1/user/verify")
-        everything = list(range(len(job["results"])))
-        _scrape(job, key, everything, FIRST_PASS, "Searching inbox")
-        retry = [i for i in everything if job["results"][i].get("outcome") == "not_found"]
-        if retry and not job["_stop"].is_set():
-            job["secondLook"] = len(retry)
-            job["tasks"]["total"] += len(retry) * len(kinds(job["options"]))
-            _scrape(job, key, retry, SECOND_PASS, f"Second, slower look at {len(retry)} with no email")
+        if job["options"].get("source") == "imap":
+            _imap_check(job, key)
+        else:
+            _task_check(job, key)
         status, message = ("stopped", "Stopped.") if job["_stop"].is_set() else ("done", "Done.")
     except AycdError as e:
         status, message = "failed", str(e)
@@ -335,6 +344,17 @@ def _run(job: dict, key: str) -> None:
     except Exception:  # noqa: BLE001
         pass
     job["status"] = status
+
+
+def _task_check(job: dict, key: str) -> None:
+    aycd(key, "GET", "/api/v1/user/verify")
+    everything = list(range(len(job["results"])))
+    _scrape(job, key, everything, FIRST_PASS, "Searching inbox")
+    retry = [i for i in everything if job["results"][i].get("outcome") == "not_found"]
+    if retry and not job["_stop"].is_set():
+        job["secondLook"] = len(retry)
+        job["tasks"]["total"] += len(retry) * len(kinds(job["options"]))
+        _scrape(job, key, retry, SECOND_PASS, f"Second, slower look at {len(retry)} with no email")
 
 
 def _scrape(job: dict, key: str, indices: list[int], settings: dict, label: str) -> None:
@@ -396,4 +416,262 @@ def _scrape(job: dict, key: str, indices: list[int], settings: dict, label: str)
         for task_id in [t for t, (_, _, deadline) in pending.items() if deadline <= now]:
             i, kind, _ = pending.pop(task_id)
             settle(i, kind, {"status": "timeout"})
+    tasks["active"] = 0
+
+
+# Over AYCD Inbox's IMAP Server
+
+IMAP_TIMEOUT = 30
+IMAP_WORKERS = 8           # mailboxes searched at once
+IMAP_MAX_BODIES = 3        # emails opened per kind before giving up on one naming this order
+IMAP_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+FOLLOWUP_SUBJECT_RE = re.compile(r"cancel|ship|arriv|deliver|on the way|tracking", re.I)
+# iCloud aliases forward to another mailbox (usually Gmail), which is where their mail is.
+FORWARD_DOMAINS = {"icloud.com", "me.com", "mac.com"}
+# Target's plain-text parts pad the preheader with invisible characters; drop them before reading.
+INVISIBLE_RE = re.compile("[­͏؜ᅟᅠ឴឵᠎ -‏‪-‮⁠-⁯ㅤ﻿]")
+BARE_URL_LINE_RE = re.compile(r"^<?https?://\S+>?$")
+
+
+def imap_config(value) -> dict:
+    v = value if isinstance(value, dict) else {}
+    try:
+        port = min(max(int(v.get("port") or 993), 1), 65535)
+    except (TypeError, ValueError):
+        port = 993
+    return {"host": str(v.get("host") or "").strip()[:255], "port": port, "ssl": v.get("ssl", True) is not False,
+            "password": str(v.get("password") or ""), "forwardTo": str(v.get("forwardTo") or "").strip()[:200]}
+
+
+def imap_open(cfg: dict):
+    cls = imaplib.IMAP4_SSL if cfg["ssl"] else imaplib.IMAP4
+    try:
+        return cls(cfg["host"], cfg["port"], timeout=IMAP_TIMEOUT)
+    except (OSError, imaplib.IMAP4.error) as e:
+        raise AycdError(f"Couldn't reach AYCD IMAP at {cfg['host']}:{cfg['port']} ({e}). Check the host, port and "
+                        "SSL setting, and that the member's AYCD Inbox is open with its IMAP Server on.") from None
+
+
+def imap_login(cfg: dict, account: str):
+    conn = imap_open(cfg)
+    try:
+        try:
+            conn.login(account, cfg["password"])
+        except imaplib.IMAP4.error as e:
+            detail = e.args[0].decode(errors="replace") if e.args and isinstance(e.args[0], bytes) else str(e)
+            raise AycdError(f"AYCD IMAP wouldn't sign in to {account} ({detail}). Check the IMAP password, and that "
+                            "the account is ticked in AYCD Inbox under Mail > IMAP Service > Configure Accounts.") from None
+        # Opening the mailbox is when AYCD syncs the account, so this is the slow step.
+        typ, data = conn.select("INBOX", readonly=True)
+        if typ != "OK":
+            raise AycdError(f"AYCD IMAP couldn't open the inbox of {account}: {data}")
+    except BaseException:
+        imap_logout(conn)
+        raise
+    return conn
+
+
+def imap_logout(conn) -> None:
+    try:
+        conn.logout()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def imap_quote(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def imap_since(ts: int) -> str:
+    # Not strftime("%b"): that follows the server's locale, and IMAP needs English month names.
+    t = time.gmtime(max(0, ts))
+    return f"{t.tm_mday:02d}-{IMAP_MONTHS[t.tm_mon - 1]}-{t.tm_year}"
+
+
+def imap_search(conn, *criteria: str) -> list:
+    typ, data = conn.uid("SEARCH", *criteria)
+    if typ != "OK":
+        raise AycdError(f"AYCD IMAP search failed: {data}")
+    return (data[0] or b"").split()
+
+
+def message_time(value) -> int | None:
+    try:
+        parsed = parsedate_to_datetime(str(value))
+    except (TypeError, ValueError, IndexError):
+        return None
+    return int(parsed.timestamp()) if parsed else None
+
+
+def imap_headers(conn, uids: list) -> list[dict]:
+    if not uids:
+        return []
+    typ, data = conn.uid("FETCH", b",".join(uids).decode(), "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+    if typ != "OK":
+        raise AycdError(f"AYCD IMAP couldn't read the emails: {data}")
+    out = []
+    for part in data:
+        if not isinstance(part, tuple):
+            continue
+        uid = re.search(rb"UID (\d+)", part[0])
+        if uid:
+            m = email.message_from_bytes(part[1], policy=email_policy.default)
+            out.append({"uid": uid.group(1), "subject": str(m.get("subject") or ""), "from": str(m.get("from") or ""),
+                        "date": message_time(m.get("date"))})
+    return out
+
+
+def html_to_text(markup: str) -> str:
+    text = re.sub(r"(?is)<(script|style|head)\b.*?</\1>", " ", markup)
+    text = re.sub(r"(?i)<br\s*/?>|</(p|div|tr|li|h\d|table)>", "\n", text)
+    return html.unescape(re.sub(r"(?s)<[^>]+>", " ", text))
+
+
+def clean_text(text: str) -> str:
+    text = INVISIBLE_RE.sub("", html.unescape(text)).replace("\xa0", " ")
+    lines = (re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.splitlines())
+    return "\n".join(line for line in lines if line and not BARE_URL_LINE_RE.match(line))
+
+
+def imap_message(conn, uid: bytes) -> dict:
+    typ, data = conn.uid("FETCH", uid.decode(), "(BODY.PEEK[])")   # PEEK: never marks the email read
+    if typ != "OK":
+        raise AycdError(f"AYCD IMAP couldn't open an email: {data}")
+    raw = next((part[1] for part in data if isinstance(part, tuple)), b"")
+    m = email.message_from_bytes(raw, policy=email_policy.default)
+    plain, markup = [], []
+    for part in m.walk():
+        if part.is_multipart() or part.get_content_maintype() != "text":
+            continue
+        try:
+            content = part.get_content()
+        except (LookupError, ValueError):
+            continue
+        if isinstance(content, str):
+            (markup if part.get_content_subtype() == "html" else plain).append(content)
+    return {"subject": str(m.get("subject") or ""), "from": str(m.get("from") or ""),
+            # The plain-text part if it says anything (some are blank), else the HTML part as text.
+            "text": clean_text("\n".join(plain)) or clean_text(html_to_text("\n".join(markup)))}
+
+
+def imap_response(message: dict, kind: str) -> dict:
+    """The email read with the same elements an AYCD task uses, shaped like a finished task."""
+    results = {}
+    for el in FOLLOWUP_ELEMENTS if kind == "followup" else ORDER_ELEMENTS:
+        if not el.get("regex"):
+            value = message.get(el["target"]) or ""
+        else:
+            haystack = message["subject"] if el["target"] == "subject" else message["text"]
+            # Plain-text parts can put a table row's label and amount on separate lines.
+            m = re.search(el["regex"], haystack) or re.search(el["regex"], haystack.replace("\n", " "))
+            # On one line, as AYCD hands it back ("Order total $96.39", not "Order total\n$96.39").
+            value = re.sub(r"\s+", " ", m.group(0)).strip() if m else ""
+        if value:
+            results[el["name"]] = value[:2000]
+    return {"status": "success", "results": results}
+
+
+def imap_mailbox(c: dict, cfg: dict) -> str:
+    domain = c["email"].rpartition("@")[2].lower()
+    return cfg["forwardTo"] if cfg["forwardTo"] and domain in FORWARD_DOMAINS else c["email"]
+
+
+def imap_lookup(conn, c: dict, forwarded: bool) -> tuple[dict, dict]:
+    """This checkout's confirmation and latest follow-up in one mailbox, as (order, followup) task results."""
+    placed = c.get("placedAt", c["createdAt"])
+    digits = next(iter(sorted(numbers(c["order"]), key=len, reverse=True)), "")
+    since = imap_since(placed - 86400)
+    if digits:
+        # The order number is specific enough on its own, even in a mailbox many aliases forward to.
+        uids = (imap_search(conn, "SINCE", since, "SUBJECT", imap_quote(digits))
+                or imap_search(conn, "SINCE", since, "BODY", imap_quote(digits)))
+        earliest = placed - LOOKBACK_BY_ORDER_NUMBER
+    else:
+        criteria = ["SINCE", since]
+        if site_word(c["retailer"]):
+            criteria += ["FROM", imap_quote(site_word(c["retailer"]))]
+        if forwarded:
+            criteria += ["TO", imap_quote(c["email"])]
+        uids = imap_search(conn, *criteria) if len(criteria) > 2 else []
+        earliest = placed - LOOKBACK_LOOSE
+    headers = [h for h in imap_headers(conn, uids[-40:]) if h["date"] is None or h["date"] >= earliest]
+    oldest_first = sorted(headers, key=lambda h: h["date"] or earliest)
+    candidates = {
+        "order": [h for h in oldest_first if not FOLLOWUP_SUBJECT_RE.search(h["subject"])],
+        # The newest follow-up is where the order is now (shipped, then delivered, or canceled).
+        "followup": [h for h in reversed(oldest_first) if FOLLOWUP_SUBJECT_RE.search(h["subject"])],
+    }
+    found = {}
+    for kind, items in candidates.items():
+        fallback = None
+        for h in items[:IMAP_MAX_BODIES]:
+            resp = imap_response(imap_message(conn, h["uid"]), kind)
+            if email_names_order(resp, c["order"]) is True:
+                found[kind] = resp
+                break
+            fallback = fallback or resp
+        else:
+            # Nothing names this order: keep another order's email if one turned up, else "no email".
+            found[kind] = fallback or {"status": "timeout"}
+    return found["order"], found["followup"]
+
+
+def _imap_check(job: dict, cfg: dict) -> None:
+    job["message"] = "Connecting to AYCD IMAP…"
+    imap_logout(imap_open(cfg))     # one quick connect first, so a wrong host fails the check at once
+    tasks = job["tasks"]
+    lock = threading.Lock()
+    by_mailbox: dict[str, list[int]] = {}
+    for i, c in enumerate(job["results"]):
+        by_mailbox.setdefault(imap_mailbox(c, cfg), []).append(i)
+
+    def settle(i: int, order_resp, follow_resp, errors: list[str], began: float) -> None:
+        c = job["results"][i]
+        c.update(outcome(c, order_resp, follow_resp, errors))
+        c["secs"] = round(time.monotonic() - began)
+        with lock:
+            tasks["settled"] += 1
+            job["message"] = f"Searching over AYCD IMAP: {tasks['settled']} of {tasks['total']} checkouts done"
+
+    def search_mailbox(account: str, indices: list[int]) -> None:
+        # One sign-in per mailbox, reused for every checkout in it.
+        if job["_stop"].is_set():
+            return
+        with lock:
+            tasks["active"] += 1
+        began = time.monotonic()
+        try:
+            try:
+                conn = imap_login(cfg, account)
+            except AycdError as e:
+                for i in indices:
+                    settle(i, None, None, [str(e)], began)
+                return
+            try:
+                for n, i in enumerate(indices):
+                    if job["_stop"].is_set():
+                        return
+                    c = job["results"][i]
+                    try:
+                        settle(i, *imap_lookup(conn, c, account.lower() != c["email"].lower()), [], began)
+                    except (AycdError, imaplib.IMAP4.error, OSError) as e:
+                        settle(i, None, None, [f"AYCD IMAP search in {account} failed: {e}"], began)
+                        if isinstance(e, (imaplib.IMAP4.abort, OSError)):
+                            # The connection dropped: the rest of this mailbox fails the same way.
+                            for j in indices[n + 1:]:
+                                settle(j, None, None, [f"AYCD IMAP connection to {account} dropped: {e}"], began)
+                            return
+                    began = time.monotonic()
+            finally:
+                imap_logout(conn)
+        finally:
+            with lock:
+                tasks["active"] -= 1
+
+    job["message"] = f"Searching over AYCD IMAP: 0 of {tasks['total']} checkouts done"
+    # Mailboxes holding the most checkouts (like a shared forwarding inbox) start first.
+    ordered = sorted(by_mailbox.items(), key=lambda kv: -len(kv[1]))
+    with ThreadPoolExecutor(max_workers=max(1, min(IMAP_WORKERS, len(ordered)))) as pool:
+        for future in [pool.submit(search_mailbox, account, indices) for account, indices in ordered]:
+            future.result()
     tasks["active"] = 0
