@@ -95,6 +95,17 @@ def known_retailer(text: str) -> str:
     return ""
 
 
+def store_after_bar(*texts: str) -> str:
+    """Refract has no Site field: it ends its headline with the store, "Successful Checkout | Target".
+    Older versions put that in the title, newer ones in the author line (the one with the icon)."""
+    for text in texts:
+        if "|" in (text or ""):
+            store = known_retailer(text.rpartition("|")[2])
+            if store:
+                return store
+    return ""
+
+
 def retailer_name(site: str) -> str:
     return known_retailer(site) or site.strip()
 
@@ -192,8 +203,7 @@ def parse_embed(embed: dict, content: str = "", sender: str = ""):
         "status": status,
         "profile": profile.strip(),
         "product": product or "",
-        # Refract has no Site field; its title ends with the store: "Successful Checkout | Target".
-        "retailer": retailer_name(found["site"]) if found.get("site") else known_retailer(title.rpartition("|")[2] if "|" in title else ""),
+        "retailer": retailer_name(found["site"]) if found.get("site") else store_after_bar(title, author),
         "price": price,
         "qty": _qty(qty),
         "order": found.get("order", "").lstrip("#").strip(),

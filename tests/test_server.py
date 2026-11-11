@@ -413,6 +413,17 @@ class ServerTest(ServerCase):
             self.assertEqual(get(polar)["product"], ko)
             self.assertEqual((get(blank)["retailer"], get(blank)["price"]), ("Target", 139.98))
             self.assertEqual((get(filled)["retailer"], get(filled)["price"], get(filled)["fee"]), ("Target", 23.98, target_fee(23.98, 2)))
+            # Refract 1.59's, saved with no store: Target, with Target's fee, unless it's on an invoice already.
+            unknown = add("store0", product=etb, retailer="", qty=1, price=59.99, source="Refract", order="102003869997105")
+            invoiced = add("store1", product=etb, retailer="", qty=1, price=59.99, source="Refract", order="102003869997106")
+            conn.execute("UPDATE checkouts SET fee = 1.5, invoice_id = NULL WHERE id = ?", (unknown,))
+            owner_id = db.upsert_user(conn, "dev-storefix", "storefix", "Storefix", None, False)["id"]
+            conn.execute("INSERT INTO invoices (user_id, status, created_at) VALUES (?, 'open', ?)", (owner_id, db.now()))
+            inv = conn.execute("SELECT MAX(id) FROM invoices").fetchone()[0]
+            conn.execute("UPDATE checkouts SET fee = 1.5, invoice_id = ? WHERE id = ?", (inv, invoiced))
+            self.assertEqual(db.fix_refract_store(conn), 2)
+            self.assertEqual((get(unknown)["retailer"], get(unknown)["fee"]), ("Target", target_fee(59.99, 1)))
+            self.assertEqual((get(invoiced)["retailer"], get(invoiced)["fee"]), ("Target", 1.5))
             # Refract's $0 one takes Polar's price for the same item.
             self.assertEqual((get(refract_free)["price"], get(refract_free)["fee"]), (23.98, target_fee(23.98, 2)))
 

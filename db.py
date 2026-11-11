@@ -166,6 +166,9 @@ def init() -> None:
         if not kv_get(conn, "fixed_prices_v2"):
             fix_old_prices(conn)
             kv_set(conn, "fixed_prices_v2", now())
+        if not kv_get(conn, "fixed_refract_store_v1"):
+            fix_refract_store(conn)
+            kv_set(conn, "fixed_refract_store_v1", now())
         # The admin flag is saved at sign-in; re-sync it with .env so removed admins lose access on restart.
         # Dev sign-ins (dev-*) pick their own flag and are left alone.
         for row in conn.execute("SELECT id, discord_id, is_admin FROM users WHERE discord_id NOT LIKE 'dev-%'").fetchall():
@@ -631,6 +634,21 @@ def fill_prices(conn) -> int:
         conn.execute("UPDATE checkouts SET price = ?, fee = ?, fee_source = ? WHERE id = ?", (price, fee, fee_source, c["id"]))
         count += 1
     return count
+
+
+def fix_refract_store(conn) -> int:
+    """One time: Refract checkouts saved with no store. Newer Refract versions put "Successful Checkout |
+    Target" in the embed's author line, where the bot didn't look, so they showed as Unknown and got the
+    fee for no store. They're Target (Refract only runs Target here). Fees are redone on unpaid ones that
+    aren't on an invoice yet: an invoice already sent keeps the amount the member saw."""
+    rows = conn.execute("""SELECT * FROM checkouts WHERE source = 'Refract' AND retailer IN ('', 'Unknown')""").fetchall()
+    for c in rows:
+        fee, fee_source = c["fee"], c["fee_source"]
+        if (not c["paid"] and not c["invoice_id"] and c["stage"] != "canceled" and c["fee_source"] != "manual"
+                and c["result"] == "hit"):
+            fee, fee_source = compute_fee(conn, "Target", c["product"], c["sku"], c["price"], c["qty"])
+        conn.execute("UPDATE checkouts SET retailer = 'Target', fee = ?, fee_source = ? WHERE id = ?", (fee, fee_source, c["id"]))
+    return len(rows)
 
 
 def fix_old_prices(conn) -> None:

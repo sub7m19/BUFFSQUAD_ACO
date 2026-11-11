@@ -16,6 +16,12 @@ SAMPLES = {
         ("Product", "[Pokémon Trading Card Game: 30th Celebration Elite Trainer Box](https://www.target.com/p/x)"),
         ("Price", "$69.99"), ("Profile", "jake-main"), ("Proxy Details", "||1.2.3.4||"), ("Quantity", "2"),
         ("Order Number", "102003841860229"), ("Fraud Status", "SUCCESS"), ("Harvester", "buffloved 8"), ("Email", "j@x.com")]),
+    # Refract 1.59: the same, but "Successful Checkout | Target" is the author line (the one with the icon).
+    "Refract 1.59": embed(author="Successful Checkout | Target", footer="Prism Technologies - 1.59.0 (1.0.163)", fields=[
+        ("Product", "[Pokémon Trading Card Game: Mega Evolution— Delta Reign Elite Trainer Box](https://www.target.com/p/x)"),
+        ("Price", "$59.99"), ("Profile", "jake-main"), ("Proxy Details", "222 | proxy.example.com:1337"), ("Quantity", "1"),
+        ("Order Number", "||102003869997105||"), ("Fraud Status", "REVIEW_HOLD"), ("Harvester", "buffloved 10"),
+        ("Email", "s@outlook.com")]),
     # As Shikari posts it: the product is a link on its own line under the title, and there's no price.
     "Shikari": embed(title="Successful Checkout!", author="Shikari", footer="@shikaritech",
                      description="[Pokémon Trading Card Game: 30th Celebration Knock Out Collection](https://www.target.com/p/x)",
@@ -43,7 +49,7 @@ class ParseCheckouts(unittest.TestCase):
                 self.assertEqual(c["profile"].lower(), "jake-main")
                 self.assertIn(c["retailer"], ("Target", "Pokemon Center"))
                 self.assertTrue(c["product"])
-                self.assertEqual(c["source"], bot)
+                self.assertEqual(c["source"], bot.split()[0])   # "Refract 1.59" is still Refract
 
     def test_sniped_email_under_the_profile_is_left_out(self):
         [c] = parse_message({"embeds": [embed(title="Sniped Checkout!", fields=[
@@ -55,6 +61,9 @@ class ParseCheckouts(unittest.TestCase):
         [c] = parse_message({"embeds": [SAMPLES["Refract"]]})
         self.assertEqual((c["price"], c["qty"], c["order"], c["retailer"], c["source"]), (139.98, 2, "102003841860229", "Target", "Refract"))
         self.assertEqual(c["product"], "Pokémon Trading Card Game: 30th Celebration Elite Trainer Box")
+        [c] = parse_message({"embeds": [SAMPLES["Refract 1.59"]]})
+        self.assertEqual((c["retailer"], c["source"], c["order"], c["price"], c["email"]),
+                         ("Target", "Refract", "102003869997105", 59.99, "s@outlook.com"))
         [c] = parse_message({"embeds": [SAMPLES["Shikari"]]})
         self.assertEqual(c["product"], "Pokémon Trading Card Game: 30th Celebration Knock Out Collection")
         self.assertEqual((c["order"], c["retailer"], c["qty"], c["price"]), ("912003841971019", "Target", 2, None))
