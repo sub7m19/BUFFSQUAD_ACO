@@ -956,6 +956,33 @@ code.revealed {
   background: rgba(0, 0, 0, 0.25);
 }
 
+/* The share card preview: the still the bot posts (the GIF animates up to it). */
+.recap-shot {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  justify-items: center;
+}
+
+.recap-shot[hidden] {
+  display: none;
+}
+
+.recap-shot img {
+  width: min(100%, 360px);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+}
+
+.recap-shot img:not([src]) {
+  display: none;
+}
+
+.recap-shot figcaption {
+  color: var(--soft);
+  font-size: 0.78rem;
+}
+
 .recap-card:empty {
   display: none;
 }

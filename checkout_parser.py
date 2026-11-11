@@ -8,7 +8,8 @@ product, site, price and so on under a handful of common names.
 
 parse_message() takes a plain dict so it can be tested without Discord:
     {"content": str, "author": str,
-     "embeds": [{"title", "description", "author", "footer", "fields": [{"name", "value"}]}]}
+     "embeds": [{"title", "description", "author", "footer", "fields": [{"name", "value"}],
+                 "thumbnail", "image"}]}
 """
 import html
 import re
@@ -211,6 +212,8 @@ def parse_embed(embed: dict, content: str = "", sender: str = ""):
         "sku": found.get("sku", ""),
         "email": found.get("email") or (under_profile.strip() if "@" in under_profile else ""),
         "source": source,
+        # The retailer's product photo: bots put it in the thumbnail, a few in the big image.
+        "image": next((u for u in (embed.get("thumbnail"), embed.get("image")) if str(u or "").startswith("https://")), ""),
     }
 
 

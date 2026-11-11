@@ -18,6 +18,7 @@ import aycd
 import config
 import db
 import order_check
+import recap_card
 
 GMAIL_IMAP_HOST = "imap.gmail.com"
 GMAIL_IMAP_PORT = 993
@@ -678,6 +679,19 @@ def recap_range(start, end) -> tuple[int, int]:
     return start_s, end_s
 
 
+def recap_theme(theme) -> str:
+    """A share card theme from the admin panel; Glare when it's missing or unknown."""
+    return theme if theme in recap_card.THEMES else "glare"
+
+
+def recap_tz(offset) -> int:
+    """The admin's browser time zone (Date.getTimezoneOffset, minutes behind UTC), for the card's dates."""
+    try:
+        return max(-840, min(840, int(float(offset))))
+    except (TypeError, ValueError):
+        return 0
+
+
 def fee_range(start, end) -> tuple[int, int]:
     """The Fees tab's time filter (ms from the browser) as seconds. None means all time."""
     try:
@@ -1250,7 +1264,17 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         # Everyone who hit, not just the top ten, so admins can pick who gets their hits DMed.
         hit_members = [{"userId": m["id"], "name": m["name"], "items": m["items"], "checkouts": m["checkouts"]}
                        for m in db.drop_hit_members(conn, start, end)]
-        return h.send_json(200, {**db.drop_recap(conn, start, end), "channel": last, "posts": recaps[-5:], "hitMembers": hit_members})
+        return h.send_json(200, {**db.drop_recap(conn, start, end), "channel": last, "posts": recaps[-5:], "hitMembers": hit_members,
+                                 "themes": recap_card.THEMES, "theme": recaps[-1].get("theme", "glare") if recaps else "glare"})
+
+    if (method, path) == ("GET", "/api/admin/recap/card.png"):
+        # The share card's preview in the Drop recap window: the still the bot posts, or the GIF's last frame.
+        start, end = recap_range(q("from"), q("to"))
+        stats = db.recap_card_stats(conn, start, end, recap_tz(q("tz")))
+        if not stats["checkouts"]:
+            raise AppError(400, "No successful checkouts in that time.")
+        png = recap_card.render_png(stats, theme=recap_theme(q("theme")), title=q("title")).getvalue()
+        return h.respond(200, [("Content-Type", "image/png"), ("Cache-Control", "no-store")], png)
 
     if (method, path) == ("POST", "/api/admin/recap"):
         body = h.body()
@@ -1262,8 +1286,11 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         if not stats["checkouts"]:
             raise AppError(400, "No successful checkouts in that time.")
         title = str(body.get("title") or "").strip()[:80] or "Drop recap"
+        # The share card goes up with the embed: an animated GIF, a still PNG, or none.
+        card = body.get("card") if body.get("card") in ("gif", "png", "none") else "gif"
         # The bot posts it on its next tick (bot.send_pending_recaps) and marks it sent or failed.
         post = {"id": secrets.token_hex(4), "title": title, "channel": channel_id, "stats": stats,
+                "card": card, "theme": recap_theme(body.get("theme")), "tz": recap_tz(body.get("tz")),
                 "status": "pending", "error": "", "by": admin["username"], "at": db.now() * 1000}
         db.kv_set(conn, "recaps", (db.kv_get(conn, "recaps", []) + [post])[-20:])
         db.audit(conn, admin["id"], "recap.post", f"{title}: {stats['checkouts']} checkouts, {stats['items']} items, to channel {channel_id}")

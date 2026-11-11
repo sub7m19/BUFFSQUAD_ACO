@@ -19,12 +19,14 @@ that list every few seconds, so adding or removing one needs no restart.
 Run: python bot.py   (needs DISCORD_BOT_TOKEN in .env)
 """
 import asyncio
+import io
 import logging
 
 import discord
 
 import config
 import db
+import recap_card
 from checkout_parser import parse_message
 
 log = logging.getLogger("buffsquad.bot")
@@ -52,6 +54,9 @@ def message_dict(message: discord.Message) -> dict:
             "author": e.author.name if e.author and e.author.name else "",
             "footer": e.footer.text if e.footer and e.footer.text else "",
             "fields": [{"name": f.name or "", "value": f.value or ""} for f in e.fields],
+            # The product photo, for the drop recap card.
+            "thumbnail": (e.thumbnail.url if e.thumbnail else None) or "",
+            "image": (e.image.url if e.image else None) or "",
         } for e in message.embeds],
     }
 
@@ -242,7 +247,7 @@ MEDALS = ["🥇", "🥈", "🥉"]
 
 
 def recap_embed(post) -> discord.Embed:
-    # Counts and members only: no products' prices, order numbers or profiles.
+    # Counts and members only: no order numbers or profiles. Spend and products are on the share card under it.
     s = post["stats"]
     start, end = s["from"] // 1000, s["to"] // 1000
     embed = discord.Embed(title=f"🏆 {post['title']}", color=0x23CED9,
@@ -271,6 +276,26 @@ def set_recap(post_id: str, **changes) -> None:
         db.kv_set(conn, "recaps", recaps)
 
 
+# Discord turns away bot uploads over 10 MB; a GIF that big goes up as the still instead.
+UPLOAD_LIMIT = 10 * 1024 * 1024 - 64 * 1024
+
+
+def recap_card_file(post):
+    """The drop's share card as a file to attach, or None for a recap posted without one.
+    Rendered when it's posted (several seconds for a GIF), so it runs off the event loop."""
+    kind = post.get("card", "none")
+    if kind == "none":
+        return None
+    s = post["stats"]
+    with db.transaction() as conn:
+        stats = db.recap_card_stats(conn, s["from"] // 1000, s["to"] // 1000, post.get("tz", 0))
+    title = post["title"] if post["title"] != "Drop recap" else None
+    data = recap_card.render_gif(stats, theme=post.get("theme", "glare"), title=title).getvalue() if kind == "gif" else b""
+    if not data or len(data) > UPLOAD_LIMIT:
+        kind, data = "png", recap_card.render_png(stats, theme=post.get("theme", "glare"), title=title).getvalue()
+    return discord.File(io.BytesIO(data), filename=f"drop-recap.{kind}")
+
+
 async def send_pending_recaps() -> None:
     """Posts the drop recaps admins send from the admin panel."""
     with db.transaction() as conn:
@@ -280,9 +305,19 @@ async def send_pending_recaps() -> None:
         if not st["ok"]:
             set_recap(post["id"], status="failed", error=st["problem"])
             continue
+        embed = recap_embed(post)
+        try:
+            card = await asyncio.to_thread(recap_card_file, post)
+        except Exception:
+            # A card that won't draw doesn't hold up the recap: it posts without one.
+            log.exception("Couldn't draw the share card for drop recap %s", post["title"])
+            card = None
+        if card:
+            embed.set_image(url=f"attachment://{card.filename}")
         try:
             # The tags in the embed show names without pinging anyone.
-            await client.get_channel(int(post["channel"])).send(embed=recap_embed(post), allowed_mentions=discord.AllowedMentions.none())
+            await client.get_channel(int(post["channel"])).send(embed=embed, file=card or discord.utils.MISSING,
+                                                                allowed_mentions=discord.AllowedMentions.none())
             set_recap(post["id"], status="sent", channelName=st["name"])
             log.info("Posted drop recap %s to #%s", post["title"], st["name"])
         except discord.HTTPException as e:

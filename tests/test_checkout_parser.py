@@ -73,6 +73,16 @@ class ParseCheckouts(unittest.TestCase):
         self.assertEqual(c["product"], "Surging Sparks Booster Box")
         self.assertEqual(c["retailer"], "Target")
 
+    def test_product_photo(self):
+        # The thumbnail (or the big image) is the product photo the drop recap card shows; only https links are kept.
+        sample = {**SAMPLES["Refract"], "thumbnail": "https://target.scene7.com/is/image/Target/GUEST_1"}
+        self.assertEqual(parse_message({"embeds": [sample]})[0]["image"], "https://target.scene7.com/is/image/Target/GUEST_1")
+        sample = {**SAMPLES["Refract"], "thumbnail": "", "image": "https://cdn.example.com/p.png"}
+        self.assertEqual(parse_message({"embeds": [sample]})[0]["image"], "https://cdn.example.com/p.png")
+        sample = {**SAMPLES["Refract"], "thumbnail": "http://10.0.0.1/p.png"}
+        self.assertEqual(parse_message({"embeds": [sample]})[0]["image"], "")
+        self.assertEqual(parse_message({"embeds": [SAMPLES["Refract"]]})[0]["image"], "")
+
     def test_declines(self):
         for title in ("Checkout Failed", "Card Declined", "Unsuccessful Checkout", "Payment Declined :x:"):
             with self.subTest(title=title):

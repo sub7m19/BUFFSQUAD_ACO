@@ -685,6 +685,24 @@
         </label>
       </div>
       <div class="recap-card" id="recap-preview" aria-live="polite"></div>
+      <div class="form-row">
+        <label>
+          Share card
+          <select name="card">
+            <option value="gif">Animated GIF</option>
+            <option value="png">Still image</option>
+            <option value="none">No card</option>
+          </select>
+        </label>
+        <label>
+          Card theme
+          <select name="theme" id="recap-theme"></select>
+        </label>
+      </div>
+      <figure class="recap-shot" id="recap-shot" hidden>
+        <img id="recap-shot-img" alt="The share card the bot will post under the recap">
+        <figcaption id="recap-shot-note">Drawing the card…</figcaption>
+      </figure>
       <label>
         Post to channel
         <input name="channel" inputmode="numeric" autocomplete="off" placeholder="Channel ID">

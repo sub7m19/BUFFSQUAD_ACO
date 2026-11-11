@@ -1305,6 +1305,11 @@ async function loadRecap() {
   try {
     recap.stats = await api("GET", `/api/admin/recap?from=${from}&to=${Date.now()}`);
     if (!recapForm.elements.channel.value) recapForm.elements.channel.value = recap.stats.channel || "";
+    const theme = byId("recap-theme");
+    if (!theme.options.length) {
+      theme.innerHTML = Object.entries(recap.stats.themes).map(([key, name]) => `<option value="${escape(key)}">${escape(name)}</option>`).join("");
+      theme.value = recap.stats.theme;
+    }
   } catch (err) {
     recap.stats = null;
     byId("recap-preview").innerHTML = "";
@@ -1312,6 +1317,34 @@ async function loadRecap() {
     byId("recap-error").hidden = false;
   }
   renderRecap();
+  loadRecapCard();
+}
+
+// The card takes a few seconds to draw, so only the newest request's picture is shown.
+let recapCardSeq = 0;
+function loadRecapCard() {
+  const s = recap.stats;
+  const shot = byId("recap-shot");
+  const img = byId("recap-shot-img");
+  const note = byId("recap-shot-note");
+  shot.hidden = !s || !s.checkouts || recapForm.elements.card.value === "none";
+  if (shot.hidden) return;
+  const seq = ++recapCardSeq;
+  const params = new URLSearchParams({ from: s.from, to: s.to, tz: new Date().getTimezoneOffset(),
+    theme: recapForm.elements.theme.value, title: recapForm.elements.title.value.trim() });
+  note.textContent = "Drawing the card…";
+  img.style.opacity = "0.4";
+  const next = new Image();
+  next.onload = () => {
+    if (seq !== recapCardSeq) return;
+    img.src = next.src;
+    img.style.opacity = "";
+    note.textContent = recapForm.elements.card.value === "gif" ? "The GIF animates in and ends on this." : "Posts under the recap.";
+  };
+  next.onerror = () => {
+    if (seq === recapCardSeq) note.textContent = "Couldn't draw the card. The recap still posts.";
+  };
+  next.src = `/api/admin/recap/card.png?${params}`;
 }
 
 function recapText() {
@@ -1342,6 +1375,9 @@ byId("recap-range").addEventListener("click", (e) => {
 
 recapForm.elements.from.addEventListener("change", loadRecap);
 recapForm.elements.title.addEventListener("input", renderRecap);
+recapForm.elements.title.addEventListener("change", loadRecapCard);
+recapForm.elements.theme.addEventListener("change", loadRecapCard);
+recapForm.elements.card.addEventListener("change", loadRecapCard);
 
 byId("recap-copy").addEventListener("click", async () => {
   try {
@@ -1451,9 +1487,10 @@ recapForm.addEventListener("submit", async (e) => {
   post.textContent = "Posting…";
   try {
     const s = recap.stats;
-    const { id } = await api("POST", "/api/admin/recap", { from: s.from, to: s.to, title: recapTitle(), channel: recapForm.elements.channel.value });
-    // The bot posts it within about 10 seconds; wait to say whether it worked.
-    for (let i = 0; i < 15; i++) {
+    const { id } = await api("POST", "/api/admin/recap", { from: s.from, to: s.to, title: recapTitle(), channel: recapForm.elements.channel.value,
+      card: recapForm.elements.card.value, theme: recapForm.elements.theme.value, tz: new Date().getTimezoneOffset() });
+    // The bot posts it within about 10 seconds, plus the time to draw the card; wait to say whether it worked.
+    for (let i = 0; i < 40; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       const st = await api("GET", `/api/admin/recap/${id}`);
       if (st.status === "sent") {

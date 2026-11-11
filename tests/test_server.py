@@ -437,6 +437,44 @@ class ServerTest(ServerCase):
             self.assertEqual(get(early)["price"], 19.98)
             conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'price%'")
 
+    def test_drop_recap_card(self):
+        # Three days back, away from the other tests' checkouts.
+        start = int(time.time()) - 3 * 86400
+        photo = "https://card-photo.invalid/etb.png"  # never resolves, so the card falls back to a letter tile offline
+        with db.transaction() as conn:
+            for i, (product, qty, price, status, image) in enumerate([
+                    ("Card ETB", 2, 120.0, "success", photo), ("Card ETB", 1, 60.0, "success", ""),
+                    ("Card Tin", 1, 25.0, "success", ""), ("Card ETB", 1, 60.0, "decline", "")]):
+                db.record_checkout(conn, {"status": status, "profile": "nobody-card", "product": product, "qty": qty,
+                                          "price": price, "retailer": "Target", "image": image}, message_key=f"card{i}:0")
+            conn.execute("UPDATE checkouts SET created_at = ? WHERE message_key LIKE 'card%'", (start + 600,))
+            conn.execute("UPDATE checkouts SET stage = 'canceled' WHERE message_key = 'card2:0'")
+            s = db.recap_card_stats(conn, start, start + 3 * 3600, 300)
+        # The canceled tin and the decline count against the stick rate, not in the spend.
+        self.assertEqual((s["checkouts"], s["issues"], s["total_units"], s["total_spend"], s["success_rate"]), (2, 2, 3, 180.0, 50))
+        # One row per product, and the photo from any of its checkouts.
+        self.assertEqual([(w["product"], w["orders"], w["quantity"], w["image"]) for w in s["top_wins"]], [("Card ETB", 2, 3, photo)])
+        self.assertEqual((s["period_label"], len(s["timeline_labels"]), sum(s["timeline_placed"])), ("3 HOUR DROP", 3, 2))
+
+        admin = self.client().login("boss", admin=True)
+        span = f"from={start * 1000}&to={(start + 3 * 3600) * 1000}"
+        status, body, headers = admin.request("GET", f"/api/admin/recap/card.png?{span}&tz=300&theme=neon&title=Friday")
+        self.assertEqual((status, headers["Content-Type"], body[1:4]), (200, "image/png", b"PNG"))
+        self.assertEqual(self.client().login("rio").request("GET", f"/api/admin/recap/card.png?{span}")[0], 403)
+        self.assertEqual(admin.request("GET", f"/api/admin/recap/card.png?from={(start - 7200) * 1000}&to={(start - 3600) * 1000}")[0], 400)
+        _, recap, _ = admin.request("GET", f"/api/admin/recap?{span}")
+        self.assertIn("glare", recap["themes"])
+
+        # The post keeps the card's format and theme for the bot; unknown ones fall back to a GIF in Glare.
+        body = {"from": start * 1000, "to": (start + 3 * 3600) * 1000, "channel": "123456789012345678", "tz": 300}
+        self.assertEqual(admin.request("POST", "/api/admin/recap", {**body, "card": "png", "theme": "neon"})[0], 200)
+        admin.request("POST", "/api/admin/recap", {**body, "card": "huge", "theme": "nope"})
+        with db.transaction() as conn:
+            posts = db.kv_get(conn, "recaps")[-2:]
+        self.assertEqual([(p["card"], p["theme"], p["tz"]) for p in posts], [("png", "neon", 300), ("gif", "glare", 300)])
+        with db.transaction() as conn:  # unmatched, so they'd show up in the other tests' unmatched lists
+            conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'card%'")
+
     def test_drop_recap(self):
         rio = self.client().login("rio")
         rio.request("PUT", "/api/me/settings", {**SETTINGS, "profiles": [{**PROFILE, "id": "r1", "label": "Recap1"}]})

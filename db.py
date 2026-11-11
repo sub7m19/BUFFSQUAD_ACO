@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS checkouts (
   created_at INTEGER NOT NULL,
   dm_status TEXT NOT NULL DEFAULT 'none',    -- none | pending | sent | failed | off
   dm_error TEXT NOT NULL DEFAULT '',
-  feed_status TEXT NOT NULL DEFAULT 'none'   -- none | pending | sent | failed: the post in the success feed channel
+  feed_status TEXT NOT NULL DEFAULT 'none',  -- none | pending | sent | failed: the post in the success feed channel
+  image_url TEXT NOT NULL DEFAULT ''         -- the product photo from the bot's webhook, for the drop recap card
 );
 CREATE INDEX IF NOT EXISTS checkouts_user ON checkouts(user_id, created_at);
 CREATE INDEX IF NOT EXISTS checkouts_dm ON checkouts(dm_status);
@@ -142,7 +143,7 @@ def init() -> None:
         for column, decl in (("sku", "TEXT NOT NULL DEFAULT ''"), ("fee_source", "TEXT NOT NULL DEFAULT ''"),
                              ("feed_status", "TEXT NOT NULL DEFAULT 'none'"),
                              ("invoice_id", "INTEGER REFERENCES invoices(id) ON DELETE SET NULL"),
-                             ("email", "TEXT NOT NULL DEFAULT ''")):
+                             ("email", "TEXT NOT NULL DEFAULT ''"), ("image_url", "TEXT NOT NULL DEFAULT ''")):
             if column not in have:
                 conn.execute(f"ALTER TABLE checkouts ADD COLUMN {column} {decl}")
         # After the columns above, so an old database has feed_status before it's indexed.
@@ -710,11 +711,11 @@ def record_checkout(conn, parsed: dict, message_key: str | None = None, channel_
         dm = "pending" if wants_checkout_dm(conn, user_id) else "off"
     cur = conn.execute(
         """INSERT INTO checkouts (user_id, profile_name, email, product, retailer, order_no, size, sku, qty, price, fee,
-             fee_source, result, source, message_key, channel_id, created_at, dm_status, feed_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             fee_source, result, source, message_key, channel_id, created_at, dm_status, feed_status, image_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (user_id, profile_name, email, product, retailer, parsed.get("order") or "", parsed.get("size") or "", sku,
          qty, price, float(fee), fee_source, "hit" if hit else "miss", source or parsed.get("source") or "",
-         message_key, channel_id, now(), dm, feed))
+         message_key, channel_id, now(), dm, feed, parsed.get("image") or ""))
     if hit and price:
         # Earlier checkouts of this item that came in without a price get this one's.
         fill_prices(conn)
@@ -735,6 +736,93 @@ def drop_recap(conn, start: int, end: int, top: int = 10) -> dict:
     unmatched = next(({"checkouts": r["checkouts"], "items": r["items"]} for r in rows if not r["user_id"]), None)
     return {"from": start * 1000, "to": end * 1000, "checkouts": sum(r["checkouts"] for r in rows),
             "items": sum(r["items"] for r in rows), "members": len(members), "top": members[:top], "unmatched": unmatched}
+
+
+def recap_card_stats(conn, start: int, end: int, tz_minutes: int = 0) -> dict:
+    """What the drop recap's share card (recap_card.py) draws, for checkouts between two
+    times (seconds). tz_minutes is the admin's browser offset (Date.getTimezoneOffset, so
+    minutes behind UTC) for the card's dates and chart labels. Placed orders are hits that
+    weren't canceled; declines and cancels count against the stick rate."""
+    from datetime import datetime, timedelta, timezone
+
+    zone = timezone(timedelta(minutes=-max(-840, min(840, int(tz_minutes or 0)))))
+    local = lambda t: datetime.fromtimestamp(t, zone)
+    rows = conn.execute(
+        "SELECT * FROM checkouts WHERE created_at >= ? AND created_at < ? ORDER BY created_at, id", (start, end)).fetchall()
+    placed = [r for r in rows if r["result"] == "hit" and r["stage"] != "canceled"]
+    canceled = [r for r in rows if r["result"] == "hit" and r["stage"] == "canceled"]
+    declined = [r for r in rows if r["result"] != "hit"]
+    issues = canceled + declined
+    spend = sum(r["price"] for r in placed)
+    units = sum(r["qty"] for r in placed)
+
+    # One leaderboard row per product, named and shot the way most of its checkouts were.
+    products: dict[str, dict] = {}
+    for r in placed:
+        name = r["product"].strip() or "Unknown item"
+        p = products.setdefault(name.casefold(), {"names": {}, "orders": 0, "quantity": 0, "spend": 0.0, "sites": {}, "sku": ""})
+        p["names"][name] = p["names"].get(name, 0) + 1
+        p["orders"] += 1
+        p["quantity"] += r["qty"]
+        p["spend"] += r["price"]
+        site = r["retailer"] or "Unknown"
+        p["sites"][site] = p["sites"].get(site, 0) + 1
+        p["sku"] = p["sku"] or r["sku"]
+    # The newest photo of each product from any checkout, so items logged before photos were saved still get one.
+    photos: dict[str, str] = {}
+    by_sku: dict[str, str] = {}
+    for r in conn.execute("SELECT product, sku, image_url FROM checkouts WHERE image_url != '' ORDER BY id DESC"):
+        photos.setdefault(r["product"].strip().casefold(), r["image_url"])
+        if r["sku"]:
+            by_sku.setdefault(r["sku"], r["image_url"])
+    top_wins = [{"product": max(p["names"], key=p["names"].get), "orders": p["orders"], "quantity": p["quantity"],
+                 "spend": round(p["spend"], 2), "site": max(p["sites"], key=p["sites"].get),
+                 "image": photos.get(key) or by_sku.get(p["sku"], "")} for key, p in products.items()]
+    top_wins.sort(key=lambda i: (i["spend"], i["quantity"], i["orders"]), reverse=True)
+
+    sites: dict[str, dict] = {}
+    for r in placed:
+        s = sites.setdefault(r["retailer"] or "Unknown", {"site": r["retailer"] or "Unknown", "orders": 0, "spend": 0.0})
+        s["orders"] += 1
+        s["spend"] += r["price"]
+
+    # The activity chart: hourly bars for a drop of a day and a half or less, then 6-hourly up to 4 days, then daily.
+    span = max(end - start, 1)
+    bar = 3600 if span <= 36 * 3600 else 6 * 3600 if span <= 4 * 86400 else 86400
+    count = max(2, -(-span // bar))
+    step = span / count
+    timeline_placed, timeline_cancelled = [0] * count, [0] * count
+    for group, buckets in ((placed, timeline_placed), (issues, timeline_cancelled)):
+        for r in group:
+            buckets[min(int((r["created_at"] - start) / step), count - 1)] += 1
+    labels = []
+    for i in range(count):
+        at = local(start + step * i)
+        hour = at.strftime("%I%p").lstrip("0")
+        labels.append(hour if bar == 3600 else f"{at.strftime('%b').upper()} {at.day}" + (f" {hour}" if bar < 86400 else ""))
+
+    hours = round(span / 3600)
+    period = f"{hours} HOUR DROP" if hours < 48 else f"{round(span / 86400)} DAY DROP"
+    if hours <= 1:
+        period = f"{max(1, round(span / 60))} MINUTE DROP"
+    attempts = len(placed) + len(issues)
+    made = local(now())
+    return {
+        "days": max(1, -(-span // 86400)),
+        "period_label": period,
+        "start": local(start).date().isoformat(), "end": local(end).date().isoformat(),
+        "start_local": local(start).date().isoformat(), "end_local": local(end).date().isoformat(),
+        "generated_label": f"{made.strftime('%b').upper()} {made.day}, {made.strftime('%I:%M %p').lstrip('0')}",
+        "checkouts": len(placed), "issues": len(issues),
+        "total_units": units, "total_spend": round(spend, 2),
+        "success_rate": round(len(placed) / attempts * 100) if attempts else 0,
+        "avg_order": spend / len(placed) if placed else 0.0,
+        "products": [(i["product"], i["quantity"]) for i in sorted(top_wins, key=lambda i: i["quantity"], reverse=True)],
+        "top_wins": top_wins,
+        "top_issue": ("Canceled after checkout" if len(canceled) >= len(declined) else "Declined") if issues else "None",
+        "sites": sorted(sites.values(), key=lambda s: (s["spend"], s["orders"]), reverse=True),
+        "timeline_placed": timeline_placed, "timeline_cancelled": timeline_cancelled, "timeline_labels": labels,
+    }
 
 
 DROP_HITS = """checkouts.result = 'hit' AND checkouts.stage != 'canceled' AND checkouts.created_at >= ? AND checkouts.created_at < ?"""
