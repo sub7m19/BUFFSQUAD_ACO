@@ -1685,6 +1685,7 @@ function renderTracker() {
   const q = tracker.search.trim().toLowerCase();
   const list = run.results.filter(show).filter((r) => !q || `${r.product} ${r.order} ${r.email} ${r.retailer}`.toLowerCase().includes(q));
   byId("tracker-list").innerHTML = list.map((r) => trackerRow(r, busy)).join("");
+  requestAnimationFrame(updateScrollFades);
   byId("tracker-empty-title").textContent = "Nothing here";
   byId("tracker-empty-text").textContent = q ? "No orders match your search." : "No orders in this group.";
   byId("tracker-empty").hidden = list.length > 0;

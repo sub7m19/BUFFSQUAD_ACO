@@ -4545,6 +4545,30 @@ a.tile:hover {
   }
 }
 
+/* Desktop fits the window like Checkouts: the orders list scrolls inside its panel (no visible
+   scrollbar, the bottom edge fades), so the page itself never gets a scrollbar */
+@media (min-width: 1024px) and (min-height: 640px) {
+  [data-view="orders"] > .tracker-results {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  [data-view="orders"] > .tracker-results[hidden] {
+    display: none;
+  }
+}
+
+/* If a page is ever taller than the window anyway, it still scrolls, just without a bar */
+.main {
+  scrollbar-width: none;
+}
+
+.main::-webkit-scrollbar {
+  display: none;
+}
+
 @media (max-width: 560px) {
   /* Time range and retailer side by side, the button full width under them */
   .tracker-run label {
