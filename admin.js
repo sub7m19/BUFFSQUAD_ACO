@@ -1268,8 +1268,85 @@ const items = (n) => plural(n, "item");
 function recapStart() {
   if (recap.range === "today") return new Date().setHours(0, 0, 0, 0);
   if (recap.range === "custom") return new Date(recapForm.elements.from.value).getTime();
+  if (recap.range === "days") return recap.pick.start.getTime();
   return Date.now() - Number(recap.range) * 3600000;
 }
+
+// The calendar: a month of days with each one's checkouts. One click picks a day; a second
+// click within a week of it stretches the pick to cover both.
+const DAY_MS = 86400000;
+const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const dayKey = (d) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+const thisMonth = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+recap.month = thisMonth();
+recap.counts = {};
+
+// Days picked on the calendar run to the end of the last one, or now if that's today.
+const recapEnd = () => (recap.range === "days" ? Math.min(addDays(recap.pick.end, 1).getTime(), Date.now()) : Date.now());
+
+async function renderCal() {
+  const first = recap.month;
+  const gridStart = addDays(first, -first.getDay());
+  const days = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+  const today = midnight(new Date());
+  byId("recap-cal-month").textContent = first.toLocaleString("en-US", { month: "long", year: "numeric" });
+  byId("recap-cal-next").disabled = first.getTime() >= thisMonth().getTime();
+  const key = dayKey(first);
+  if (!recap.counts[key]) {
+    try {
+      const { days: counts } = await api("GET", `/api/admin/recap/days?from=${gridStart.getTime()}&to=${addDays(gridStart, 42).getTime()}&tz=${new Date().getTimezoneOffset()}`);
+      recap.counts[key] = counts;
+    } catch {
+      recap.counts[key] = {};
+    }
+    if (dayKey(recap.month) !== key) return;  // moved on to another month while this one loaded
+  }
+  const counts = recap.counts[key];
+  const busiest = Math.max(1, ...Object.values(counts).map((c) => c.checkouts));
+  const s = recap.stats;
+  const picked = (d) => Boolean(s) && d.getTime() < s.to && addDays(d, 1).getTime() > s.from;
+  byId("recap-cal-grid").innerHTML = ["S", "M", "T", "W", "T", "F", "S"].map((d) => `<span class="recap-cal-dow" aria-hidden="true">${d}</span>`).join("")
+    + days.map((d) => {
+      const c = counts[dayKey(d)];
+      const label = `${d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}: ${c ? plural(c.checkouts, "checkout") : "no checkouts"}`;
+      const cls = ["recap-cal-day", d.getMonth() !== first.getMonth() && "other", d.getTime() === today.getTime() && "today", picked(d) && "picked"].filter(Boolean).join(" ");
+      const heat = c ? (0.08 + 0.32 * c.checkouts / busiest).toFixed(2) : 0;
+      return `<button type="button" class="${cls}" data-day="${d.getTime()}" style="--heat:${heat}" aria-label="${escape(label)}"
+        aria-pressed="${picked(d)}" ${d > today ? "disabled" : ""}>${d.getDate()}<small>${c ? c.checkouts : ""}</small></button>`;
+    }).join("");
+}
+
+function pickDay(day) {
+  const p = recap.range === "days" && recap.pick;
+  const hint = byId("recap-cal-hint");
+  hint.textContent = "Pick a day, then another to cover up to a week. The numbers are each day's checkouts.";
+  if (p && p.start.getTime() === p.end.getTime() && day.getTime() !== p.start.getTime()) {
+    const [start, end] = day < p.start ? [day, p.start] : [p.start, day];
+    if (Math.round((end - start) / DAY_MS) <= 6) {
+      recap.pick = { start, end };
+    } else {
+      recap.pick = { start: day, end: day };
+      hint.textContent = "A recap covers up to a week, so that started a new pick.";
+    }
+  } else {
+    recap.pick = { start: day, end: day };
+  }
+  recap.range = "days";
+  byId("recap-range").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", "false"));
+  recapForm.querySelector(".recap-from").hidden = true;
+  loadRecap();
+}
+
+byId("recap-cal-grid").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-day]");
+  if (btn && !btn.disabled) pickDay(new Date(Number(btn.dataset.day)));
+});
+
+recapForm.querySelectorAll("[data-cal]").forEach((btn) => btn.addEventListener("click", () => {
+  recap.month = new Date(recap.month.getFullYear(), recap.month.getMonth() + Number(btn.dataset.cal), 1);
+  renderCal();
+}));
 
 const recapTitle = () => recapForm.elements.title.value.trim() || "Drop recap";
 
@@ -1303,7 +1380,7 @@ async function loadRecap() {
   const from = recapStart();
   if (!from) return;
   try {
-    recap.stats = await api("GET", `/api/admin/recap?from=${from}&to=${Date.now()}`);
+    recap.stats = await api("GET", `/api/admin/recap?from=${from}&to=${recapEnd()}`);
     if (!recapForm.elements.channel.value) recapForm.elements.channel.value = recap.stats.channel || "";
     const theme = byId("recap-theme");
     if (!theme.options.length) {
@@ -1317,6 +1394,7 @@ async function loadRecap() {
     byId("recap-error").hidden = false;
   }
   renderRecap();
+  renderCal();
   loadRecapCard();
 }
 
@@ -1358,6 +1436,8 @@ function recapText() {
 
 document.querySelectorAll("[data-open-recap]").forEach((btn) => btn.addEventListener("click", () => {
   recap.stats = null;
+  recap.counts = {};  // fresh counts each time the window opens
+  recap.month = thisMonth();
   byId("recap-preview").innerHTML = "";
   if (!recapForm.elements.from.value) recapForm.elements.from.value = localInput(new Date(Date.now() - 3 * 3600000));
   recapModal.showModal();

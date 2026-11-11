@@ -1267,6 +1267,16 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
         return h.send_json(200, {**db.drop_recap(conn, start, end), "channel": last, "posts": recaps[-5:], "hitMembers": hit_members,
                                  "themes": recap_card.THEMES, "theme": recaps[-1].get("theme", "glare") if recaps else "glare"})
 
+    if (method, path) == ("GET", "/api/admin/recap/days"):
+        # The Drop recap calendar: how many checkouts each day of the month on screen had.
+        try:
+            start, end = int(float(q("from"))) // 1000, int(float(q("to"))) // 1000
+        except ValueError:
+            raise AppError(400, "Bad time range.")
+        if not 0 < end - start <= 50 * 86400:
+            raise AppError(400, "Bad time range.")
+        return h.send_json(200, {"days": db.recap_days(conn, start, end, recap_tz(q("tz")))})
+
     if (method, path) == ("GET", "/api/admin/recap/card.png"):
         # The share card's preview in the Drop recap window: the still the bot posts, or the GIF's last frame.
         start, end = recap_range(q("from"), q("to"))

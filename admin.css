@@ -946,6 +946,85 @@ code.revealed {
   overflow-x: auto;
 }
 
+/* The Drop recap calendar: each day's checkouts, brighter on busier days. */
+.recap-cal {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.recap-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--white);
+  font-size: 0.86rem;
+}
+
+.recap-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.recap-cal-dow {
+  padding-bottom: 2px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.recap-cal-day {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  min-height: 42px;
+  padding: 5px 2px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: rgba(35, 206, 217, var(--heat, 0));
+  color: var(--soft);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.recap-cal-day small {
+  min-height: 1em;
+  color: var(--cyan);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.recap-cal-day:hover:not(:disabled) {
+  border-color: var(--line);
+  color: var(--white);
+}
+
+.recap-cal-day.other {
+  opacity: 0.45;
+}
+
+.recap-cal-day.today {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.recap-cal-day.picked {
+  border-color: var(--cyan);
+  color: var(--white);
+}
+
+.recap-cal-day:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
 .recap-card {
   display: grid;
   gap: 10px;

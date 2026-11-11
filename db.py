@@ -738,6 +738,17 @@ def drop_recap(conn, start: int, end: int, top: int = 10) -> dict:
             "items": sum(r["items"] for r in rows), "members": len(members), "top": members[:top], "unmatched": unmatched}
 
 
+def recap_days(conn, start: int, end: int, tz_minutes: int = 0) -> dict:
+    """Successful checkouts and items per day between two times (seconds), for the Drop
+    recap's calendar: {"2026-11-10": {"checkouts": 4, "items": 6}}. Days are the admin's
+    own (tz_minutes as from Date.getTimezoneOffset); canceled orders don't count."""
+    shift = -max(-840, min(840, int(tz_minutes or 0))) * 60
+    rows = conn.execute(
+        f"""SELECT date(created_at + ?, 'unixepoch') AS day, COUNT(*) AS checkouts, SUM(qty) AS items
+            FROM checkouts WHERE {DROP_HITS} GROUP BY day""", (shift, start, end)).fetchall()
+    return {r["day"]: {"checkouts": r["checkouts"], "items": r["items"]} for r in rows}
+
+
 def recap_card_stats(conn, start: int, end: int, tz_minutes: int = 0) -> dict:
     """What the drop recap's share card (recap_card.py) draws, for checkouts between two
     times (seconds). tz_minutes is the admin's browser offset (Date.getTimezoneOffset, so

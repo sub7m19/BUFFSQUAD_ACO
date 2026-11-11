@@ -472,6 +472,12 @@ class ServerTest(ServerCase):
         with db.transaction() as conn:
             posts = db.kv_get(conn, "recaps")[-2:]
         self.assertEqual([(p["card"], p["theme"], p["tz"]) for p in posts], [("png", "neon", 300), ("gif", "glare", 300)])
+        # The calendar: that day's successful, uncanceled checkouts and their items.
+        day = time.strftime("%Y-%m-%d", time.gmtime(start + 600))
+        status, cal, _ = admin.request("GET", f"/api/admin/recap/days?from={(start - 86400) * 1000}&to={(start + 86400) * 1000}&tz=0")
+        self.assertEqual((status, cal["days"].get(day)), (200, {"checkouts": 2, "items": 3}))
+        self.assertEqual(admin.request("GET", "/api/admin/recap/days?from=0&to=99999999999999")[0], 400)
+        self.assertEqual(self.client().login("rio").request("GET", f"/api/admin/recap/days?from={start * 1000}&to={(start + 60) * 1000}")[0], 403)
         with db.transaction() as conn:  # unmatched, so they'd show up in the other tests' unmatched lists
             conn.execute("DELETE FROM checkouts WHERE message_key LIKE 'card%'")
 
