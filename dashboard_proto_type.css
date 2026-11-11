@@ -4202,32 +4202,116 @@ a.tile:hover {
   }
 }
 
-/* Order tracker */
-.tracker-panel {
-  display: grid;
-  gap: 16px;
-  max-width: 760px;
-  margin-bottom: 18px;
+/* Order tracker: the mail login lives in a dialog; the page is the run bar, the tiles and the orders */
+.tracker-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 6px 14px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--white);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
 }
 
-.tracker-panel .segment {
-  justify-self: start;
+.tracker-conn[hidden] {
+  display: none;
+}
+
+.tracker-conn:hover {
+  border-color: rgba(35, 206, 217, 0.5);
+  background: rgba(35, 206, 217, 0.08);
+}
+
+.tracker-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(123, 227, 160, 0.16);
+}
+
+.tracker-conn-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.tracker-conn-text small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tracker-conn-text b {
+  overflow: hidden;
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracker-conn .icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.tracker-setup {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 40px 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.tracker-setup[hidden],
+.tracker-controls[hidden],
+.tracker-results[hidden],
+.tracker-tiles[hidden] {
+  display: none;
+}
+
+.tracker-setup strong {
+  color: var(--white);
+  font-size: 1.05rem;
+}
+
+.tracker-setup > span:not(.empty-icon) {
+  max-width: 460px;
+  font-size: 0.88rem;
+}
+
+.tracker-setup .button {
+  margin-top: 6px;
 }
 
 .tracker-note {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0;
-  padding: 10px 12px;
+  margin: 4px 0 0;
+  padding: 9px 12px;
   border: 1px solid rgba(35, 206, 217, 0.3);
   border-radius: var(--radius);
   background: rgba(35, 206, 217, 0.08);
   color: var(--soft);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
+  text-align: left;
 }
 
 .tracker-note .icon {
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
   color: var(--cyan);
 }
@@ -4236,28 +4320,20 @@ a.tile:hover {
   color: var(--white);
 }
 
-.tracker-form {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: end;
+.tracker-controls {
+  display: grid;
+  gap: 12px;
 }
 
-.tracker-form .wide {
-  grid-column: 1 / -1;
+.tracker-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
-.tracker-form [hidden] {
-  display: none;
-}
-
-.tracker-form label small {
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.tracker-form select {
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
+.tracker-run select {
+  min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -4265,39 +4341,60 @@ a.tile:hover {
   color: var(--white);
 }
 
-.tracker-form select option {
+.tracker-run select option {
   background: var(--ink);
 }
 
-.tracker-form select:focus {
+.tracker-run select:focus {
   outline: none;
   border-color: var(--cyan);
   box-shadow: 0 0 0 3px rgba(35, 206, 217, 0.2);
 }
 
-.tracker-form .field-hint {
-  margin-top: 0;
+.tracker-run .button {
+  min-height: 40px;
+}
+
+.tracker-run .button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tracker-last {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.tracker-last .text-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
 }
 
 .tracker-progress {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
-  margin-bottom: 14px;
+  gap: 8px 14px;
   color: var(--soft);
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 600;
 }
 
 .tracker-progress[hidden],
-#tracker-results .field-error[hidden] {
+.tracker-controls .field-error[hidden],
+.tracker-modal .field-error[hidden],
+.tracker-modal [data-mode][hidden],
+.tracker-modal .button[hidden] {
   display: none;
 }
 
 .tracker-bar {
-  flex: 1 1 220px;
-  height: 8px;
+  flex: 1 1 100%;
+  height: 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
@@ -4307,25 +4404,138 @@ a.tile:hover {
   display: block;
   height: 100%;
   width: 0;
-  background: var(--cyan);
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cyan), var(--violet));
   transition: width 0.4s ease;
+}
+
+.tracker-message {
+  flex: 1 1 auto;
+}
+
+.tracker-timer {
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
 }
 
 .tracker-tiles {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 16px;
 }
 
-.tracker-filter {
+.tracker-results .toolbar {
   margin-bottom: 6px;
 }
 
-.tracker-row .checkout-info span {
-  white-space: normal;
+.tracker-row {
+  align-items: flex-start !important;
+}
+
+.tracker-row .checkout-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tracker-row .via-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.tracker-row .via {
+  padding: 1px 9px;
+  border: 1px solid color-mix(in srgb, var(--tone) 50%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  color: var(--tone);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.6;
+  --tone: var(--cyan);
+}
+
+.tracker-row .via[data-retailer="Target"] {
+  --tone: var(--red);
+}
+
+.tracker-row .via[data-retailer="Pokemon Center"] {
+  --tone: #ffd166;
+}
+
+.tracker-row strong small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.tracker-meta,
+.tracker-subject,
+.tracker-err {
   overflow-wrap: anywhere;
+  font-size: 0.8rem;
+}
+
+.tracker-meta {
+  color: var(--muted);
+}
+
+.tracker-subject {
+  color: var(--soft);
+  font-style: italic;
 }
 
 .tracker-err {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.tracker-side {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.tracker-facts {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+}
+
+.tracker-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tracker-fact .icon {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.tracker-modal {
+  width: min(500px, calc(100% - 32px));
+}
+
+.tracker-modal .segment {
+  justify-self: start;
+}
+
+.tracker-modal label small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.tracker-modal .modal-actions #tracker-forget {
+  margin-right: auto;
   color: var(--red);
 }
 
@@ -4336,9 +4546,97 @@ a.tile:hover {
 }
 
 @media (max-width: 560px) {
-  .tracker-form,
-  .tracker-tiles {
-    grid-template-columns: minmax(0, 1fr);
+  /* Time range and retailer side by side, the button full width under them */
+  .tracker-run label {
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+
+  .tracker-run select {
+    width: 100%;
+  }
+
+  .tracker-run .button {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  /* The four filter tabs as a 2 x 2 grid, so they never run off the screen */
+  .tracker-results .segment {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .tracker-results .segment button {
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .tracker-results .search {
+    max-width: none;
+  }
+
+  .tracker-last {
+    margin-left: 0;
+  }
+
+  .tracker-row {
+    flex-wrap: wrap;
+  }
+
+  .tracker-row .checkout-info {
+    flex-basis: 100%;
+  }
+
+  /* Status on the left, total and tracking on the right, on one line under the details */
+  .tracker-side {
+    display: flex;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 12px;
+    margin-left: 0;
+  }
+
+  .tracker-side .stage {
+    margin-left: 0;
+  }
+
+  .tracker-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  /* Short tiles: the number and its label, without the note under it */
+  .tracker-tiles .tile-note {
+    display: none;
+  }
+
+  .tracker-tiles .tile {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    min-height: 0;
+    padding: 10px 12px;
+  }
+
+  .tracker-tiles .tile-icon {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    margin: 0;
+  }
+
+  .tracker-tiles .tile small {
+    font-size: 0.62rem;
+  }
+
+  .tracker-tiles .tile strong {
+    font-size: 1.15rem;
   }
 }
 

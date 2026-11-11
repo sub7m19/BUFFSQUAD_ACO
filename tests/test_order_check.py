@@ -418,6 +418,19 @@ class ImapCheckTest(ServerCase):
         admin = self.owner()
         _, listing, _ = admin.request("GET", "/api/admin/order-check")
         self.assertIn(user_id, [m["id"] for m in listing["members"]])
+        # Saving checks the login first, and a run with no settings sent uses the saved ones.
+        status, body, _ = me.request("PUT", "/api/me/order-check/imap", {**imap, "password": "wrong"})
+        self.assertEqual(status, 400)
+        self.assertIn("username and password", body["message"])
+        status, body, _ = me.request("PUT", "/api/me/order-check/imap", {**imap, "password": ""})
+        self.assertEqual((status, body["imap"]["saved"]), (200, True), body)
+        status, body, _ = me.request("POST", "/api/me/order-check", {"days": 7})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["run"]["options"]["imapMode"], "custom")
+        for _ in range(200):
+            if me.request("GET", "/api/me/order-check")[1]["run"]["status"] != "running":
+                break
+            time.sleep(0.05)
         # A member can take their IMAP settings off the site.
         self.assertEqual(me.request("DELETE", "/api/me/order-check/imap")[0], 200)
         self.assertFalse(me.request("GET", "/api/me/order-check")[1]["imap"]["saved"])

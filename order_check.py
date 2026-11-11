@@ -463,6 +463,17 @@ def imap_problem(cfg: dict) -> str:
     return ""
 
 
+def imap_test(cfg: dict) -> str:
+    """Try the settings before saving them. Custom IMAP signs in to its mailbox; AYCD UpLink signs in per
+    account, so only the server is checked (a wrong password shows up on the first check)."""
+    if cfg["mode"] == "custom":
+        conn = imap_login(cfg, cfg["username"])
+        imap_logout(conn)
+        return f"Signed in to {cfg['username']}."
+    imap_logout(imap_open(cfg))
+    return f"Reached {cfg['host']}."
+
+
 def imap_public(cfg: dict) -> dict:
     """The settings to show on a page: everything but the password."""
     return {k: cfg[k] for k in ("mode", "host", "port", "ssl", "username", "forwardTo")} | {"saved": bool(cfg["password"])}

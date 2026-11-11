@@ -536,6 +536,23 @@ class Handler(SimpleHTTPRequestHandler):
         if route == ("POST", "/api/me/order-check/stop"):
             return self.send_json(200, {"ok": order_check.stop(self.require_user(conn)["id"])})
 
+        if route == ("PUT", "/api/me/order-check/imap"):
+            # Save the tracker's mail login, after checking it works.
+            user = self.require_user(conn)
+            cfg = order_check.imap_config(self.body())
+            before = saved_imap(conn, user["id"])
+            if not cfg["password"] and all(before[k] == cfg[k] for k in ("mode", "host", "username")):
+                cfg["password"] = before["password"]
+            problem = order_check.imap_problem(cfg)
+            if problem:
+                raise AppError(400, problem)
+            try:
+                message = order_check.imap_test(cfg)
+            except order_check.AycdError as e:
+                raise AppError(400, str(e))
+            db.set_secret(conn, user["id"], "order_imap", "imap", cfg)
+            return self.send_json(200, {"ok": True, "message": message, "imap": order_check.imap_public(cfg)})
+
         if route == ("DELETE", "/api/me/order-check/imap"):
             user = self.require_user(conn)
             db.set_secret(conn, user["id"], "order_imap", "imap", None)
@@ -750,8 +767,9 @@ def start_order_check(conn, member, body: dict, actor, by_admin: bool) -> dict:
     template_id = str(body.get("templateId") or "").strip()[:80]
     source = "imap" if not by_admin or body.get("source") == "imap" else "tasks"   # members: IMAP only
     if source == "imap":
-        key = order_check.imap_config(body.get("imap"))
         before = saved_imap(conn, member["id"])
+        # No settings sent: use the saved ones.
+        key = order_check.imap_config(body["imap"]) if isinstance(body.get("imap"), dict) else dict(before)
         # A blank password keeps the saved one, as long as it's the same server and sign-in.
         if not key["password"] and all(before[k] == key[k] for k in ("mode", "host", "username")):
             key["password"] = before["password"]
