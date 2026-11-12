@@ -49,6 +49,7 @@ DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 # Only members of this server can sign in (needs the bot token, and the bot in the server).
 DISCORD_GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "")
 # Invite link for the BUFFSQUAD server, shown to people who try to sign in before joining.
+# Only until an admin saves one in Settings > Discord invite.
 DISCORD_INVITE_URL = os.environ.get("DISCORD_INVITE_URL", "https://discord.gg/7SGtgcEq")
 # Discord user IDs that see the master log: every admin's downloads, reveals and
 # changes. Admins can't see it. Owners get the admin panel too.

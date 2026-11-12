@@ -339,6 +339,11 @@ class Handler(SimpleHTTPRequestHandler):
 
     def static(self, method: str) -> None:
         path = self.url.path
+        if path in ("/discord", "/discord/"):
+            # Every Join Discord button links here, so a new invite only has to be saved in Settings.
+            with db.transaction() as conn:
+                self.redirect(db.discord_invite(conn))
+            return
         if path in ("/dashboard", "/dashboard/"):
             path = self.path = "/dashboard_proto_type.html"
         if path == "/admin":
@@ -425,7 +430,7 @@ class Handler(SimpleHTTPRequestHandler):
                 # Invite opens in a new tab; this page stays open to sign in again after joining.
                 self.send_page(403, "You need to be in the BUFFSQUAD Discord to use the dashboard. "
                                     "Join the server, then come back to this tab and sign in.", [
-                    ("Join Discord", config.DISCORD_INVITE_URL, True),
+                    ("Join Discord", db.discord_invite(conn), True),
                     ("I've joined, sign in", "/auth/discord/login?" + urlencode({"next": safe_next(next_path)}), False),
                 ])
                 return
@@ -1073,7 +1078,21 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
 
     if (method, path) == ("GET", "/api/admin/settings"):
         return h.send_json(200, {"fees": db.fees(conn), "feeTypes": db.fee_types(conn), "rules": db.fee_rules(conn),
-                                 "retailers": config.RETAILERS})
+                                 "retailers": config.RETAILERS, "discordInvite": db.discord_invite(conn)})
+
+    if (method, path) == ("PUT", "/api/admin/discord-invite"):
+        raw = str(h.body().get("invite") or "").strip()
+        if raw:
+            try:
+                invite = db.clean_invite(raw)
+            except ValueError:
+                raise AppError(400, "That isn't a Discord invite. Paste a link like https://discord.gg/abc123.")
+            db.kv_set(conn, "discord_invite", invite)
+        else:
+            conn.execute("DELETE FROM kv WHERE key = 'discord_invite'")
+        invite = db.discord_invite(conn)
+        db.audit(conn, admin["id"], "settings.invite", invite + ("" if raw else " (default)"))
+        return h.send_json(200, {"ok": True, "discordInvite": invite})
 
     if (method, path) == ("PUT", "/api/admin/fee-rules"):
         body = h.body(limit=64 * 1024)

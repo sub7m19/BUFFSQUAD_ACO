@@ -225,6 +225,24 @@ def kv_set(conn, key: str, value) -> None:
                  (key, json.dumps(value)))
 
 
+INVITE_RE = re.compile(r"(?:https?://)?(?:www\.)?(?:discord\.gg/|discord(?:app)?\.com/invite/)?([A-Za-z0-9-]{2,32})/?")
+
+
+def clean_invite(raw) -> str:
+    """A pasted Discord invite (a link or just its code) as https://discord.gg/<code>.
+    Only Discord invites pass, so /discord can't be pointed at another site."""
+    m = INVITE_RE.fullmatch(str(raw or "").strip())
+    if not m:
+        raise ValueError("not a Discord invite")
+    return f"https://discord.gg/{m.group(1)}"
+
+
+def discord_invite(conn) -> str:
+    """The server invite every Join Discord button goes to (through /discord). Admins update
+    it in Settings when an invite expires; until one is saved, DISCORD_INVITE_URL from .env."""
+    return kv_get(conn, "discord_invite") or config.DISCORD_INVITE_URL
+
+
 def fees(conn) -> dict:
     """Default ACO fee per retailer, set by admins. 'Other' covers anything else."""
     return {**{r: 0 for r in config.RETAILERS}, "Other": 0, **kv_get(conn, "fees", {})}

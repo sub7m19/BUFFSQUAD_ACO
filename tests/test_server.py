@@ -648,12 +648,28 @@ class ServerTest(ServerCase):
             oauth = headers["Set-Cookie"].split(";")[0]
             status, page, _ = c.request("GET", f"/auth/discord/callback?code=abc&state={state}", headers={"Cookie": oauth})
             self.assertEqual(status, 403)
-            self.assertIn(config.DISCORD_INVITE_URL.encode(), page)
+            self.assertIn(b"https://discord.gg/", page)
             self.assertIn(b'target="_blank"', page)
             self.assertIn(b"/auth/discord/login?next=%2Fdashboard", page)
             self.assertEqual(c.cookie, "")  # not signed in
         finally:
             config.DISCORD_CLIENT_ID, config.DISCORD_CLIENT_SECRET, main.discord_request, main.in_guild = saved
+
+    def test_discord_invite(self):
+        """Admins replace an expired invite in Settings; /discord (every Join button) follows it."""
+        status, _, headers = self.client().request("GET", "/discord")
+        self.assertEqual((status, headers["Location"]), (302, config.DISCORD_INVITE_URL))
+        admin = self.client().login("inviter", admin=True)
+        self.assertEqual(self.client().login("invitee").request("PUT", "/api/admin/discord-invite", {"invite": "x"})[0], 403)
+        for bad in ("https://evil.example/abc", "javascript:alert(1)", "discord.gg/"):
+            self.assertEqual(admin.request("PUT", "/api/admin/discord-invite", {"invite": bad})[0], 400, bad)
+        for pasted in ("https://discord.com/invite/NewCode9", "discord.gg/NewCode9", "NewCode9"):
+            status, res, _ = admin.request("PUT", "/api/admin/discord-invite", {"invite": pasted})
+            self.assertEqual((status, res["discordInvite"]), (200, "https://discord.gg/NewCode9"))
+        self.assertEqual(self.client().request("GET", "/discord")[2]["Location"], "https://discord.gg/NewCode9")
+        self.assertEqual(admin.request("GET", "/api/admin/settings")[1]["discordInvite"], "https://discord.gg/NewCode9")
+        # Cleared: back to the .env default.
+        self.assertEqual(admin.request("PUT", "/api/admin/discord-invite", {"invite": ""})[1]["discordInvite"], config.DISCORD_INVITE_URL)
 
     def test_reply_waits_for_the_save(self):
         """The server answers only after saving, so the next request always sees the change.

@@ -1139,6 +1139,7 @@ async function loadSettings() {
         </select>
       </div>
     </div>`).join("");
+  if (document.activeElement !== byId("invite-url")) byId("invite-url").value = data.settings.discordInvite || "";
   // Don't wipe rule edits that haven't been saved yet.
   if (!rulesDirty) renderRules(data.settings.rules);
   renderExport();
@@ -1301,6 +1302,20 @@ byId("fees-form").addEventListener("submit", async (e) => {
     loadSettings();
   } catch (err) {
     notify(err.message);
+  }
+});
+
+byId("invite-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const error = byId("invite-error");
+  error.hidden = true;
+  try {
+    const res = await api("PUT", "/api/admin/discord-invite", { invite: byId("invite-url").value });
+    byId("invite-url").value = res.discordInvite;
+    notify("Invite saved. Every Join Discord button uses it now.");
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
   }
 });
 
@@ -1662,7 +1677,7 @@ const ACTIONS = {
   "feed.set": "Set the success feed channel", "feed.clear": "Turned off the success feed",
   "checkout.bulk_delete": "Deleted checkouts", "recap.post": "Posted a drop recap", "recap.dms": "DMed members their hits",
   "invoice.send": "Sent an invoice", "invoice.paid": "Marked an invoice paid", "invoice.open": "Marked an invoice unpaid",
-  "invoice.void": "Voided an invoice", "invoice.resend": "Resent an invoice", "settings.pay": "Changed how members pay",
+  "invoice.void": "Voided an invoice", "invoice.resend": "Resent an invoice", "settings.pay": "Changed how members pay", "settings.invite": "Changed the Discord invite",
   "blocked.export": "Blocked: downloading an admin's profiles", "blocked.reveal": "Blocked: revealing an admin's details",
   "blocked.disable": "Blocked: turning an admin on or off",
   "order_check.run": "Checked a member's orders", "order_check.self": "Tracked their own orders", "blocked.order_check": "Blocked: checking an admin's orders",

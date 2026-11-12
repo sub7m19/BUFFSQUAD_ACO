@@ -472,6 +472,22 @@
             <button class="button ghost" type="button" id="apply-rules">Apply to unpaid checkouts</button>
           </div>
         </section>
+
+        <section class="panel admin-form" aria-labelledby="invite-title">
+          <h2 class="label" id="invite-title">Discord invite</h2>
+          <p class="field-hint">Where every <b>Join Discord</b> button goes: the splash page, the dashboard, and the page people see when they sign in before joining. When an invite expires, paste a new one here.</p>
+          <form id="invite-form">
+            <label>
+              Invite link
+              <input id="invite-url" name="invite" autocomplete="off" spellcheck="false" placeholder="https://discord.gg/abc123">
+            </label>
+            <p class="field-error" id="invite-error" hidden></p>
+            <div class="rule-actions">
+              <button class="button primary" type="submit">Save invite</button>
+              <a class="button ghost" id="invite-test" href="/discord" target="_blank" rel="noreferrer">Test link</a>
+            </div>
+          </form>
+        </section>
       </section>
 
       <!-- Activity -->
