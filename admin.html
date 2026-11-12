@@ -475,7 +475,8 @@
 
         <section class="panel admin-form" aria-labelledby="invite-title">
           <h2 class="label" id="invite-title">Discord invite</h2>
-          <p class="field-hint">Where every <b>Join Discord</b> button goes: the splash page, the dashboard, and the page people see when they sign in before joining. When an invite expires, paste a new one here.</p>
+          <p class="field-hint">Where every <b>Join Discord</b> button goes: the splash page, the dashboard, and the page people see when they sign in before joining. The bot makes a new 7-day invite every 6 days and saves it here, so it never expires. Pasting one yourself works too; the bot replaces it 6 days later.</p>
+          <p class="field-hint" id="invite-status" hidden></p>
           <form id="invite-form">
             <label>
               Invite link

@@ -13,6 +13,9 @@ member, or "Resend DM"), posts drop recaps sent from the admin panel, DMs each
 member a summary of their hits from a drop ("DM everyone their hits"), DMs fee
 invoices and their reminders, and catches up on messages posted while it was offline.
 
+Every 6 days it makes a new 7-day server invite and saves it as the one every
+Join Discord button on the site goes to (/discord), so that link never expires.
+
 The channels to watch are set on the admin panel's Channels tab. The bot re-reads
 that list every few seconds, so adding or removing one needs no restart.
 
@@ -39,6 +42,10 @@ client = discord.Client(intents=intents)
 
 CATCH_UP_LIMIT = 200
 POLL_SECONDS = 10
+
+INVITE_EVERY = 6 * 86400   # make a new invite this often...
+INVITE_LASTS = 7 * 86400   # ...that lasts a day longer, so the saved one never lapses
+INVITE_RETRY = 3600        # after a failure, try again in an hour
 
 # Channel ids being watched right now, refreshed from the database by heartbeat().
 watched: set[int] = set()
@@ -529,6 +536,40 @@ async def refresh_channels() -> None:
         db.kv_set(conn, "bot_feed_channel", {feed["id"]: feed_status(int(feed["id"]))} if feed else {})
 
 
+def invite_channel(guild):
+    """Where new members land: the server's welcome channel, then its rules channel,
+    then the first text channel the bot may make invites in."""
+    me = guild.me
+    picks = [guild.system_channel, guild.rules_channel, *sorted(guild.text_channels, key=lambda c: c.position)]
+    return next((c for c in picks if c and c.permissions_for(me).create_instant_invite), None)
+
+
+async def refresh_invite() -> None:
+    """Makes a new invite once the saved one (the bot's, or one an admin pasted) is 6 days old."""
+    if not config.DISCORD_GUILD_ID:
+        return
+    with db.transaction() as conn:
+        meta = db.invite_status(conn)
+    wait = INVITE_RETRY if meta.get("error") else INVITE_EVERY
+    if db.now() - meta.get("at", 0) < wait:
+        return
+    guild = client.get_guild(int(config.DISCORD_GUILD_ID))
+    channel = invite_channel(guild) if guild else None
+    try:
+        if not channel:
+            raise RuntimeError("the bot isn't in the server, or can't make invites in any channel")
+        invite = await channel.create_invite(max_age=INVITE_LASTS, max_uses=0, unique=True,
+                                             reason="BUFFSQUAD site invite, renewed every 6 days")
+    except Exception as e:
+        log.warning("Couldn't make a new server invite: %s", e)
+        with db.transaction() as conn:
+            db.kv_set(conn, "discord_invite_status", {**meta, "at": db.now(), "error": str(e)[:200]})
+        return
+    with db.transaction() as conn:
+        db.save_invite(conn, invite.url, by="bot", channel=channel.name)
+    log.info("New server invite %s in #%s", invite.url, channel.name)
+
+
 async def heartbeat() -> None:
     """Lets the admin panel show the bot as online, follows channel changes, and sends queued DMs and feed posts."""
     while not client.is_closed():
@@ -542,6 +583,7 @@ async def heartbeat() -> None:
             await send_pending_recaps()
             await send_pending_hit_dms()
             await send_pending_invoices()
+            await refresh_invite()
         except Exception:  # Keep the loop alive; the next tick retries.
             log.exception("Heartbeat failed")
         await asyncio.sleep(POLL_SECONDS)

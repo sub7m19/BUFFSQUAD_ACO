@@ -1,4 +1,5 @@
 """The bot's DMs fit Discord's limits without cutting a line in half."""
+import asyncio
 import unittest
 from unittest import mock
 
@@ -7,6 +8,66 @@ import tests.test_server  # noqa: F401  sets up the throwaway database before co
 import bot  # noqa: E402
 
 KNOCK_OUT = "Pokémon Trading Card Game: 30th Celebration Knock Out Collection"
+
+
+class FakeChannel:
+    def __init__(self, name, position=0, can_invite=True):
+        self.name, self.position, self.can_invite, self.made = name, position, can_invite, []
+
+    def permissions_for(self, member):
+        return mock.Mock(create_instant_invite=self.can_invite)
+
+    async def create_invite(self, **kw):
+        self.made.append(kw)
+        return mock.Mock(url=f"https://discord.gg/new{len(self.made)}")
+
+
+class InviteRenewalTest(unittest.TestCase):
+    """Every 6 days the bot saves a new 7-day invite, where new members land."""
+
+    def setUp(self):
+        bot.db.init()
+        self.welcome, self.general = FakeChannel("welcome", 0, can_invite=False), FakeChannel("general", 1)
+        guild = mock.Mock(system_channel=self.welcome, rules_channel=None, text_channels=[self.general, self.welcome])
+        patches = [mock.patch.object(bot.config, "DISCORD_GUILD_ID", "1"), mock.patch.object(bot.client, "get_guild", return_value=guild)]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.clear()
+        self.addCleanup(self.clear)
+
+    @staticmethod
+    def clear():
+        with bot.db.transaction() as conn:
+            conn.execute("DELETE FROM kv WHERE key IN ('discord_invite', 'discord_invite_status')")
+
+    def run_once(self):
+        asyncio.run(bot.refresh_invite())
+        with bot.db.transaction() as conn:
+            return bot.db.discord_invite(conn), bot.db.invite_status(conn)
+
+    def test_renews_every_six_days(self):
+        url, status = self.run_once()  # none saved yet: makes one now, skipping #welcome it can't invite to
+        self.assertEqual((url, status["by"], status["channel"]), ("https://discord.gg/new1", "bot", "general"))
+        self.assertEqual(self.general.made[0]["max_age"], 7 * 86400)
+        self.assertEqual(self.run_once()[0], "https://discord.gg/new1")  # still fresh
+        with mock.patch.object(bot.db, "now", return_value=bot.db.now() + 6 * 86400):
+            self.assertEqual(self.run_once()[0], "https://discord.gg/new2")
+
+    def test_an_admins_invite_waits_six_days(self):
+        with bot.db.transaction() as conn:
+            bot.db.save_invite(conn, "https://discord.gg/pasted", by="admin")
+        self.assertEqual(self.run_once()[0], "https://discord.gg/pasted")
+
+    def test_failure_is_shown_and_retried_hourly(self):
+        self.general.can_invite = False
+        url, status = self.run_once()
+        self.assertIn("can't make invites", status["error"])
+        self.general.can_invite = True
+        self.run_once()
+        self.assertEqual(self.general.made, [])  # waits an hour
+        with mock.patch.object(bot.db, "now", return_value=bot.db.now() + 3600):
+            self.assertEqual(self.run_once()[1]["error"], "")
 
 
 def checkout(product, qty=1, fee=4.80, price=96.00, fee_source="default", **extra):

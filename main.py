@@ -1078,7 +1078,8 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
 
     if (method, path) == ("GET", "/api/admin/settings"):
         return h.send_json(200, {"fees": db.fees(conn), "feeTypes": db.fee_types(conn), "rules": db.fee_rules(conn),
-                                 "retailers": config.RETAILERS, "discordInvite": db.discord_invite(conn)})
+                                 "retailers": config.RETAILERS, "discordInvite": db.discord_invite(conn),
+                                 "inviteStatus": db.invite_status(conn)})
 
     if (method, path) == ("PUT", "/api/admin/discord-invite"):
         raw = str(h.body().get("invite") or "").strip()
@@ -1087,12 +1088,10 @@ def admin_api(h: Handler, conn, method: str, path: str, admin) -> None:
                 invite = db.clean_invite(raw)
             except ValueError:
                 raise AppError(400, "That isn't a Discord invite. Paste a link like https://discord.gg/abc123.")
-            db.kv_set(conn, "discord_invite", invite)
-        else:
-            conn.execute("DELETE FROM kv WHERE key = 'discord_invite'")
+        db.save_invite(conn, invite if raw else None, by="admin")
         invite = db.discord_invite(conn)
         db.audit(conn, admin["id"], "settings.invite", invite + ("" if raw else " (default)"))
-        return h.send_json(200, {"ok": True, "discordInvite": invite})
+        return h.send_json(200, {"ok": True, "discordInvite": invite, "inviteStatus": db.invite_status(conn)})
 
     if (method, path) == ("PUT", "/api/admin/fee-rules"):
         body = h.body(limit=64 * 1024)

@@ -243,6 +243,21 @@ def discord_invite(conn) -> str:
     return kv_get(conn, "discord_invite") or config.DISCORD_INVITE_URL
 
 
+def invite_status(conn) -> dict:
+    """When the invite was last saved (seconds), by whom ("bot" or "admin"), the bot's
+    channel, and its last error, for the bot's 6-day renewal and the Settings page."""
+    return kv_get(conn, "discord_invite_status", {})
+
+
+def save_invite(conn, url: str | None, by: str, channel: str = "") -> None:
+    """Saves the invite (None goes back to DISCORD_INVITE_URL) and starts the 6-day clock."""
+    if url:
+        kv_set(conn, "discord_invite", url)
+    else:
+        conn.execute("DELETE FROM kv WHERE key = 'discord_invite'")
+    kv_set(conn, "discord_invite_status", {"at": now(), "by": by, "channel": channel, "error": ""})
+
+
 def fees(conn) -> dict:
     """Default ACO fee per retailer, set by admins. 'Other' covers anything else."""
     return {**{r: 0 for r in config.RETAILERS}, "Other": 0, **kv_get(conn, "fees", {})}

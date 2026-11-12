@@ -1140,6 +1140,7 @@ async function loadSettings() {
       </div>
     </div>`).join("");
   if (document.activeElement !== byId("invite-url")) byId("invite-url").value = data.settings.discordInvite || "";
+  renderInviteStatus(data.settings.inviteStatus);
   // Don't wipe rule edits that haven't been saved yet.
   if (!rulesDirty) renderRules(data.settings.rules);
   renderExport();
@@ -1305,6 +1306,17 @@ byId("fees-form").addEventListener("submit", async (e) => {
   }
 });
 
+function renderInviteStatus(s) {
+  const el = byId("invite-status");
+  el.hidden = !(s && s.at);
+  if (el.hidden) return;
+  const next = new Date((s.at + 6 * 86400) * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  el.classList.toggle("field-error", !!s.error);
+  el.textContent = s.error
+    ? `The bot couldn't make a new invite (${s.error}). It tries again every hour.`
+    : `${s.by === "bot" ? `Made by the bot in #${s.channel}` : "Saved by an admin"} ${ago(s.at * 1000)}. Next new invite: ${next}.`;
+}
+
 byId("invite-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const error = byId("invite-error");
@@ -1312,6 +1324,7 @@ byId("invite-form").addEventListener("submit", async (e) => {
   try {
     const res = await api("PUT", "/api/admin/discord-invite", { invite: byId("invite-url").value });
     byId("invite-url").value = res.discordInvite;
+    renderInviteStatus(res.inviteStatus);
     notify("Invite saved. Every Join Discord button uses it now.");
   } catch (err) {
     error.textContent = err.message;
