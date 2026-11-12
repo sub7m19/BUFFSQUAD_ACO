@@ -1498,3 +1498,9 @@ code.revealed {
 .main::-webkit-scrollbar {
   display: none;
 }
+
+/* Settings > Discord invite: when the bot made the invite and when the next one is due */
+#invite-status:not(.field-error) {
+  color: #a8dcff;
+  font-weight: 600;
+}
