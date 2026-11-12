@@ -70,6 +70,26 @@ class InviteRenewalTest(unittest.TestCase):
             self.assertEqual(self.run_once()[1]["error"], "")
 
 
+class ProductPhotoTest(unittest.TestCase):
+    """Checkout DMs and feed posts show the product photo."""
+
+    def row(self, **kw):
+        return {"product": "Prismatic ETB", "retailer": "Target", "qty": 1, "price": 59.99, "order_no": "", "fee": 0,
+                "profile_name": "jake-main", "image_url": "", **kw}
+
+    def test_its_own_photo(self):
+        c = self.row(image_url="https://target.scene7.com/etb.jpg")
+        for embed in (bot.dm_embed(c), bot.feed_embed(c)):
+            self.assertEqual(embed.thumbnail.url, "https://target.scene7.com/etb.jpg")
+
+    def test_falls_back_to_the_same_products_photo(self):
+        with mock.patch.object(bot.db, "transaction") as tx:
+            tx.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = {"image_url": "https://x/etb.jpg"}
+            self.assertEqual(bot.dm_embed(self.row()).thumbnail.url, "https://x/etb.jpg")
+            tx.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = None
+            self.assertIsNone(bot.feed_embed(self.row()).thumbnail.url)
+
+
 def checkout(product, qty=1, fee=4.80, price=96.00, fee_source="default", **extra):
     return {"product": product, "qty": qty, "fee": fee, "price": price, "fee_source": fee_source, "retailer": "Target",
             "size": "", "profile_name": "jake-main", "email": "jake+1@gmail.com", **extra}

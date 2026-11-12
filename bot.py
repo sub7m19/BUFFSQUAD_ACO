@@ -84,6 +84,26 @@ def handle(message: discord.Message) -> int:
     return new
 
 
+def product_photo(c) -> str:
+    """The checkout's product photo, or, if its webhook had none, the newest photo of the
+    same product from another checkout."""
+    if str(c["image_url"] or "").startswith("https://"):
+        return c["image_url"]
+    if not c["product"]:
+        return ""
+    with db.transaction() as conn:
+        row = conn.execute("SELECT image_url FROM checkouts WHERE product = ? COLLATE NOCASE AND image_url LIKE 'https://%' "
+                           "ORDER BY id DESC LIMIT 1", (c["product"].strip(),)).fetchone()
+    return row["image_url"] if row else ""
+
+
+def add_photo(embed: discord.Embed, c) -> discord.Embed:
+    photo = product_photo(c)
+    if photo:
+        embed.set_thumbnail(url=photo)
+    return embed
+
+
 def dm_embed(c) -> discord.Embed:
     embed = discord.Embed(title="You got a checkout! 🎉", description=c["product"] or "New order", color=0x23CED9)
     embed.add_field(name="Retailer", value=c["retailer"] or "—")
@@ -98,7 +118,7 @@ def dm_embed(c) -> discord.Embed:
     if url.startswith("https://"):
         embed.url = url
     embed.set_footer(text="BUFFSQUAD ACO · Full details on your dashboard")
-    return embed
+    return add_photo(embed, c)
 
 
 async def send_pending_dms() -> None:
@@ -130,7 +150,7 @@ def feed_embed(c) -> discord.Embed:
         embed.add_field(name="Qty", value=str(c["qty"]))
     embed.add_field(name="Profile", value=c["profile_name"] or "—")
     embed.set_footer(text="BUFFSQUAD ACO")
-    return embed
+    return add_photo(embed, c)
 
 
 async def send_pending_feed() -> None:
