@@ -782,6 +782,19 @@ def recap_days(conn, start: int, end: int, tz_minutes: int = 0) -> dict:
     return {r["day"]: {"checkouts": r["checkouts"], "items": r["items"]} for r in rows}
 
 
+def product_photos(conn):
+    """Returns photo(product, sku): the newest photo of that product from any checkout, by
+    name and then by SKU, so items logged before photos were saved still get one ('' if none)."""
+    photos: dict[str, str] = {}
+    by_sku: dict[str, str] = {}
+    for r in conn.execute("SELECT product, sku, image_url FROM checkouts WHERE image_url != '' ORDER BY id DESC"):
+        photos.setdefault(r["product"].strip().casefold(), r["image_url"])
+        if r["sku"]:
+            by_sku.setdefault(r["sku"], r["image_url"])
+    # A checkout with no product name doesn't borrow another nameless one's photo.
+    return lambda product, sku="": ((product or "").strip() and photos.get(product.strip().casefold())) or by_sku.get(sku or "", "")
+
+
 def recap_card_stats(conn, start: int, end: int, tz_minutes: int = 0) -> dict:
     """What the drop recap's share card (recap_card.py) draws, for checkouts between two
     times (seconds). tz_minutes is the admin's browser offset (Date.getTimezoneOffset, so
@@ -812,16 +825,10 @@ def recap_card_stats(conn, start: int, end: int, tz_minutes: int = 0) -> dict:
         site = r["retailer"] or "Unknown"
         p["sites"][site] = p["sites"].get(site, 0) + 1
         p["sku"] = p["sku"] or r["sku"]
-    # The newest photo of each product from any checkout, so items logged before photos were saved still get one.
-    photos: dict[str, str] = {}
-    by_sku: dict[str, str] = {}
-    for r in conn.execute("SELECT product, sku, image_url FROM checkouts WHERE image_url != '' ORDER BY id DESC"):
-        photos.setdefault(r["product"].strip().casefold(), r["image_url"])
-        if r["sku"]:
-            by_sku.setdefault(r["sku"], r["image_url"])
+    photo = product_photos(conn)
     top_wins = [{"product": max(p["names"], key=p["names"].get), "orders": p["orders"], "quantity": p["quantity"],
                  "spend": round(p["spend"], 2), "site": max(p["sites"], key=p["sites"].get),
-                 "image": photos.get(key) or by_sku.get(p["sku"], "")} for key, p in products.items()]
+                 "image": photo(key, p["sku"])} for key, p in products.items()]
     top_wins.sort(key=lambda i: (i["spend"], i["quantity"], i["orders"]), reverse=True)
 
     sites: dict[str, dict] = {}

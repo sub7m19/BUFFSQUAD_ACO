@@ -40,6 +40,8 @@
     <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
     <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13l3-8h12l3 8v6H3v-6z"/><path d="M3 13h5l1 2h6l1-2h5"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
   </svg>
 
   <img class="banner" src="assets/arnold-banner.png" alt="" aria-hidden="true">
@@ -135,6 +137,7 @@
             <p class="page-sub">Every order we've placed for you and where it is now.</p>
           </div>
         </header>
+        <div class="co-grid">
         <div class="chips" id="stage-chips"></div>
         <section class="panel">
           <div class="toolbar">
@@ -156,6 +159,31 @@
             <span>Join a drop and your orders will show up here.</span>
           </div>
         </section>
+
+        <!-- What each drop's checkouts came to, item by item. Wide screens only. -->
+        <section class="panel drop-panel" aria-labelledby="drop-title" id="drop-panel">
+          <div class="drop-head">
+            <h2 class="label" id="drop-title">Drop summary</h2>
+            <div class="drop-pick" id="drop-pick" hidden>
+              <button type="button" data-drop-step="1" aria-label="Earlier drop"><svg class="icon"><use href="#i-left"/></svg></button>
+              <span id="drop-name"></span>
+              <button type="button" data-drop-step="-1" aria-label="Later drop"><svg class="icon"><use href="#i-right"/></svg></button>
+            </div>
+          </div>
+          <div class="drop-totals">
+            <div class="drop-total"><small>Items</small><strong id="drop-items-total">0</strong></div>
+            <div class="drop-total"><small>Orders</small><strong id="drop-orders-total">0</strong></div>
+            <div class="drop-total spent"><small>Spent</small><strong id="drop-spent-total">$0.00</strong></div>
+          </div>
+          <ul class="drop-items" id="drop-items"></ul>
+          <div class="empty" id="drop-empty" hidden>
+            <span class="empty-icon"><svg class="icon"><use href="#i-bag"/></svg></span>
+            <strong>No drops yet</strong>
+            <span>Your checkouts from each drop add up here.</span>
+          </div>
+          <p class="drop-note">Spent adds up each order's price as the bot reported it. Canceled orders aren't counted.</p>
+        </section>
+        </div>
       </section>
 
       <!-- Order tracker -->

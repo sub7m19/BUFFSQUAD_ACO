@@ -3067,7 +3067,7 @@ h2.label {
     padding: 12px 14px;
   }
 
-  [data-view="checkouts"] > .panel,
+  [data-view="checkouts"] .co-grid > .panel,
   [data-view="billing"] .split > .panel:first-child {
     display: flex;
     flex: 1 1 0;
@@ -3423,7 +3423,7 @@ h2.label {
     max-height: 100%;
   }
 
-  [data-view="checkouts"] > .panel,
+  [data-view="checkouts"] .co-grid > .panel,
   #pane-profiles,
   #pane-accounts {
     flex: 0 1 auto;
@@ -3502,6 +3502,7 @@ h2.label {
 .home-stack,
 .drop-grid,
 .checkout-list,
+.drop-items,
 #profile-table,
 .account-grid {
   scrollbar-width: none;
@@ -3511,6 +3512,7 @@ h2.label {
 .home-stack::-webkit-scrollbar,
 .drop-grid::-webkit-scrollbar,
 .checkout-list::-webkit-scrollbar,
+.drop-items::-webkit-scrollbar,
 #profile-table::-webkit-scrollbar,
 .account-grid::-webkit-scrollbar {
   display: none;
@@ -4954,4 +4956,267 @@ a.tile:hover {
   color: var(--cyan);
   font-size: 0.86rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* Checkouts: the Drop summary sits beside the order list when there's room for
+   both. Narrower screens keep the list as it was and leave the summary out. */
+.co-grid {
+  display: contents;
+}
+
+[data-view="checkouts"] .co-grid > .drop-panel {
+  display: none;
+}
+
+@media (min-width: 1440px) and (min-height: 640px) {
+  .main:has([data-view="checkouts"]:not([hidden])) {
+    max-width: 1720px;
+  }
+
+  [data-view="checkouts"] {
+    max-width: 1440px;
+  }
+
+  .co-grid {
+    display: grid;
+    flex: 1 1 0;
+    min-height: 0;
+    grid-template-columns: minmax(0, 900px) minmax(360px, 500px);
+    grid-template-rows: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 18px 22px;
+  }
+
+  .co-grid > .chips {
+    grid-column: 1;
+  }
+
+  .co-grid > .panel {
+    grid-row: 2;
+    max-height: 100%;
+  }
+
+  [data-view="checkouts"] .co-grid > .drop-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+}
+
+.drop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.drop-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.drop-pick[hidden] {
+  display: none;
+}
+
+.drop-pick button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.drop-pick button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--white);
+}
+
+.drop-pick button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.drop-pick span {
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.drop-pick .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.drop-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.drop-total {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.drop-total small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.drop-total strong {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 1.15rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drop-total.spent strong {
+  color: var(--cyan);
+}
+
+.drop-items {
+  flex: 1;
+  min-height: 0;
+  margin: 0 -10px;
+  padding: 0 10px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.drop-items li {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0 -10px;
+  padding: 12px 10px;
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.drop-items li:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.drop-photo {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.drop-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.drop-photo.none {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+}
+
+.drop-photo.none .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.drop-info {
+  min-width: 0;
+}
+
+.drop-info strong {
+  display: block;
+  font-size: 0.84rem;
+  line-height: 1.3;
+}
+
+.drop-info span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.drop-bar {
+  height: 4px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.drop-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cyan);
+}
+
+.drop-nums {
+  text-align: right;
+}
+
+.drop-nums .qty {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(35, 206, 217, 0.14);
+  color: var(--cyan);
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.drop-nums strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.drop-nums small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.drop-panel .empty {
+  flex: 1;
+}
+
+.drop-note {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
 }

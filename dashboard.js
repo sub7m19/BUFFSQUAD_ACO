@@ -190,7 +190,7 @@ function save() {
   }
 }
 
-const filters = { checkouts: "all", stage: "all", search: "", profileSite: "all", profileSearch: "", profileTab: "profiles", inboxMethod: state.inbox.method || "aycd" };
+const filters = { checkouts: "all", stage: "all", drop: null, search: "", profileSite: "all", profileSearch: "", profileTab: "profiles", inboxMethod: state.inbox.method || "aycd" };
 
 const money = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -337,6 +337,83 @@ function renderCheckouts() {
       </div>
     </li>`).join("");
   byId("checkouts-empty").hidden = list.length > 0;
+  renderDropSummary();
+}
+
+// Drop summary: a member's checkouts grouped into drops (one day at one store),
+// newest first, each with its items added up. Canceled orders don't count.
+function drops() {
+  const byKey = new Map();
+  checkouts.filter(charged).forEach((c) => {
+    const day = c.at ? new Date(c.at).toDateString() : c.date;
+    const key = `${day}|${c.retailer}`;
+    if (!byKey.has(key)) byKey.set(key, { key, label: `${c.date} · ${c.retailer}`, at: c.at || 0, orders: [] });
+    byKey.get(key).orders.push(c);
+  });
+  // Checkouts arrive newest first, but sort anyway in case a store's drop ran past midnight.
+  return [...byKey.values()].sort((a, b) => b.at - a.at);
+}
+
+// A product photo that won't load (moved or blocked by the store) falls back to the box icon.
+document.addEventListener("error", (e) => {
+  if (!(e.target instanceof HTMLImageElement) || !e.target.closest(".drop-photo")) return;
+  const box = e.target.parentElement;
+  box.classList.add("none");
+  box.innerHTML = icon("box");
+}, true);
+
+function renderDropSummary() {
+  const list = drops();
+  const drop = list.find((d) => d.key === filters.drop) || list[0];
+  filters.drop = drop ? drop.key : null;
+  byId("drop-pick").hidden = !drop;
+  byId("drop-empty").hidden = Boolean(drop);
+  const orders = drop ? drop.orders : [];
+
+  // One row per product, by name, biggest spend first.
+  const items = new Map();
+  orders.forEach((c) => {
+    const key = c.product.trim().toLowerCase();
+    if (!items.has(key)) items.set(key, { name: c.product, image: c.image || "", orders: 0, qty: 0, spent: 0 });
+    const it = items.get(key);
+    it.orders++;
+    it.qty += c.qty || 0;
+    it.spent += c.price || 0;
+    if (!it.image && c.image) it.image = c.image;
+  });
+  const rows = [...items.values()].sort((a, b) => b.spent - a.spent || b.qty - a.qty);
+  const spent = rows.reduce((s, it) => s + it.spent, 0);
+
+  if (drop) {
+    const at = list.indexOf(drop);
+    byId("drop-name").textContent = drop.label;
+    byId("drop-pick").querySelector('[data-drop-step="1"]').disabled = at === list.length - 1;
+    byId("drop-pick").querySelector('[data-drop-step="-1"]').disabled = at === 0;
+  }
+  byId("drop-items-total").textContent = rows.reduce((s, it) => s + it.qty, 0).toLocaleString("en-US");
+  byId("drop-orders-total").textContent = orders.length.toLocaleString("en-US");
+  byId("drop-spent-total").textContent = money(spent);
+
+  byId("drop-items").innerHTML = rows.map((it) => {
+    const share = spent ? (it.spent / spent) * 100 : 0;
+    const each = it.qty ? it.spent / it.qty : 0;
+    return `
+      <li>
+        <span class="drop-photo${it.image ? "" : " none"}">${it.image
+          ? `<img src="${escape(it.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+          : icon("box")}</span>
+        <div class="drop-info">
+          <strong>${escape(it.name)}</strong>
+          <span>${escape(drop.orders[0].retailer)} · ${plural(it.orders, "order")}${it.spent ? ` · ${money(each)} each` : " · price unknown"}</span>
+          <div class="drop-bar"><i style="width:${share.toFixed(1)}%"></i></div>
+        </div>
+        <div class="drop-nums">
+          <span class="qty">×${it.qty.toLocaleString("en-US")}</span>
+          <strong>${it.spent ? money(it.spent) : "—"}</strong>
+          ${it.spent ? `<small>${Math.round(share)}% of spend</small>` : ""}
+        </div>
+      </li>`;
+  }).join("");
 }
 
 // Billing
@@ -550,7 +627,7 @@ function render() {
 
 // Lists that scroll inside their panel have no visible scrollbar, so their
 // bottom edge fades out while there's more below.
-const SCROLLERS = ".home-grid .panel > ul, .home-stack, .drop-grid, .checkout-list, #profile-table, .account-grid";
+const SCROLLERS = ".home-grid .panel > ul, .home-stack, .drop-grid, .checkout-list, .drop-items, #profile-table, .account-grid";
 
 function updateScrollFades() {
   document.querySelectorAll(SCROLLERS).forEach((el) => {
@@ -1500,10 +1577,16 @@ function syncSegment(name) {
 
 // One click handler for everything rendered from data.
 document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-link], [data-edit-account], [data-unlink], [data-add-profile], [data-edit-profile], [data-delete-profile], [data-profile-active], [data-notify], [data-discord], [data-stage], .segment button");
+  const el = e.target.closest("[data-link], [data-edit-account], [data-unlink], [data-add-profile], [data-edit-profile], [data-delete-profile], [data-profile-active], [data-notify], [data-discord], [data-stage], [data-drop-step], .segment button");
   if (!el) return;
 
-  if (el.matches(".segment button")) {
+  if (el.dataset.dropStep) {
+    const list = drops();
+    const at = Math.max(0, list.findIndex((d) => d.key === filters.drop));
+    const next = list[at + Number(el.dataset.dropStep)];
+    if (next) filters.drop = next.key;
+    renderDropSummary();
+  } else if (el.matches(".segment button")) {
     const group = el.parentElement;
     filters[group.dataset.filter] = el.dataset.value;
     group.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b === el));

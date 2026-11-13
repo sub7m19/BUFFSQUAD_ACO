@@ -600,9 +600,12 @@ def member_payload(conn, user) -> dict:
         "meta": f"{r['retailer']} · Qty {r['qty']}", "at": r["created_at"] * 1000,
     } for r in rows[:8]]
     explain = db.fee_explainer(conn)
+    photo = db.product_photos(conn)
 
     def member_checkout(r) -> dict:
         data = db.checkout_json(r, member_view=True)
+        # For the Drop summary next to the Checkouts list.
+        data["image"] = photo(r["product"], r["sku"])
         math = explain(r)
         # The equation behind the fee, for the Billing page. Only when it comes from a fee setting and
         # still adds up: a fee set by hand, or one the settings no longer give, shows just its amount.

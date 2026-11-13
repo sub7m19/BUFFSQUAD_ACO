@@ -95,6 +95,16 @@ class ServerTest(ServerCase):
         self.assertEqual(self.client().login("bob").request("GET", "/admin")[0], 403)
         self.assertEqual(self.client().login("boss", admin=True).request("GET", "/admin")[0], 200)
 
+    def test_product_photos(self):
+        with db.transaction() as conn:
+            db.record_checkout(conn, {"status": "success", "profile": "nobody-photo", "product": "Photo Box", "sku": "SKU9",
+                                      "image": "https://example.com/box.png"}, message_key="photo:1")
+            photo = db.product_photos(conn)
+        self.assertEqual(photo(" photo box "), "https://example.com/box.png")   # by name, any case
+        self.assertEqual(photo("Renamed Box", "SKU9"), "https://example.com/box.png")  # by SKU
+        self.assertEqual(photo("", ""), "")
+        self.assertEqual(photo("Never Seen"), "")
+
     def test_secrets_batch(self):
         erin = self.client().login("erin")
         card = lambda ref: {"kind": "card", "ref": ref, "value": {"number": "4111111111111111", "cvv": "123", "exp": "01/29", "name": "Erin"}}
