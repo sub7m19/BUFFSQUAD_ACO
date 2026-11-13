@@ -173,6 +173,26 @@ class AppError(Exception):
         self.message = message
 
 
+# Most secrets /api/me/secrets takes in one request.
+SECRET_BATCH = 25
+
+
+def clean_secret(body) -> tuple[str, str, object]:
+    """Checks one secret from the dashboard. Returns (kind, ref, value) for db.set_secret."""
+    if not isinstance(body, dict):
+        raise AppError(400, "Bad request.")
+    kind, ref, value = body.get("kind"), str(body.get("ref") or "")[:64], body.get("value")
+    if kind not in ("card", "account", "inbox") or not ref:
+        raise AppError(400, "Bad request.")
+    if kind == "card" and value is not None:
+        if not isinstance(value, dict) or not re.fullmatch(r"\d{12,19}", str(value.get("number", ""))):
+            raise AppError(400, "Check the card number.")
+        value = {k: str(value.get(k, ""))[:64] for k in ("number", "cvv", "exp", "name")}
+    elif value is not None:
+        value = str(value)[:512]
+    return kind, "inbox" if kind == "inbox" else ref, value
+
+
 class Handler(SimpleHTTPRequestHandler):
     server_version = "BUFFSQUAD"
     sys_version = ""
@@ -496,18 +516,19 @@ class Handler(SimpleHTTPRequestHandler):
 
         if route == ("POST", "/api/me/secret"):
             user = self.require_user(conn)
-            body = self.body()
-            kind, ref, value = body.get("kind"), str(body.get("ref") or "")[:64], body.get("value")
-            if kind not in ("card", "account", "inbox") or not ref:
-                raise AppError(400, "Bad request.")
-            if kind == "card" and value is not None:
-                if not isinstance(value, dict) or not re.fullmatch(r"\d{12,19}", str(value.get("number", ""))):
-                    raise AppError(400, "Check the card number.")
-                value = {k: str(value.get(k, ""))[:64] for k in ("number", "cvv", "exp", "name")}
-            elif value is not None:
-                value = str(value)[:512]
-            db.set_secret(conn, user["id"], kind, "inbox" if kind == "inbox" else ref, value)
+            db.set_secret(conn, user["id"], *clean_secret(self.body()))
             return self.send_json(200, {"ok": True})
+
+        if route == ("POST", "/api/me/secrets"):
+            # Several at once, for a profile import: one request and one write per batch
+            # instead of one per card. All or nothing, so a bad entry saves none of them.
+            user = self.require_user(conn)
+            items = self.body(limit=SECRET_BATCH * 1024).get("items")
+            if not isinstance(items, list) or not 0 < len(items) <= SECRET_BATCH:
+                raise AppError(400, "Bad request.")
+            for item in [clean_secret(i) for i in items]:
+                db.set_secret(conn, user["id"], *item)
+            return self.send_json(200, {"ok": True, "count": len(items)})
 
         if route in (("POST", "/api/inbox/gmail/check"), ("POST", "/api/inbox/icloud/check"), ("POST", "/api/inbox/aycd/check")):
             self.require_user(conn)

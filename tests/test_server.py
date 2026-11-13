@@ -95,6 +95,19 @@ class ServerTest(ServerCase):
         self.assertEqual(self.client().login("bob").request("GET", "/admin")[0], 403)
         self.assertEqual(self.client().login("boss", admin=True).request("GET", "/admin")[0], 200)
 
+    def test_secrets_batch(self):
+        erin = self.client().login("erin")
+        card = lambda ref: {"kind": "card", "ref": ref, "value": {"number": "4111111111111111", "cvv": "123", "exp": "01/29", "name": "Erin"}}
+        self.assertEqual(erin.request("POST", "/api/me/secrets", {"items": [card("e1"), card("e2")]})[0], 200)
+        # One bad entry saves none of the batch.
+        bad = {"kind": "card", "ref": "e4", "value": {"number": "12"}}
+        self.assertEqual(erin.request("POST", "/api/me/secrets", {"items": [card("e3"), bad]})[0], 400)
+        # Empty and oversized batches are refused.
+        self.assertEqual(erin.request("POST", "/api/me/secrets", {"items": []})[0], 400)
+        self.assertEqual(erin.request("POST", "/api/me/secrets", {"items": [card(f"x{i}") for i in range(main.SECRET_BATCH + 1)]})[0], 400)
+        _, me, _ = erin.request("GET", "/api/me")
+        self.assertEqual(sorted(me["saved"]["cards"]), ["e1", "e2"])
+
     def test_member_flow_bot_match_and_admin(self):
         alice = self.client().login("alice")
         status, me, _ = alice.request("GET", "/api/me")

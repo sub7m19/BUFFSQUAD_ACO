@@ -112,21 +112,37 @@ const saved = { cards: new Set(), accounts: new Set(), inbox: false };
 // Writes go out one at a time and in order, so a card saved right after a
 // settings change never lands before it.
 let writes = Promise.resolve();
+// Writes queued or in flight. While any are, leaving the page asks first.
+let unsent = 0;
+// A request that hangs gives up after this long, so it can't hold up every write behind it.
+const WRITE_TIMEOUT = 30000;
 
 function send(method, url, body) {
-  const run = () => fetch(url, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }).then((res) => {
-    if (res.status === 401) location.href = "/auth/discord/login?next=/dashboard";
-    if (!res.ok) throw new Error(res.status);
-    return res.json();
-  });
-  const done = writes.then(run);
+  const run = () => {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), WRITE_TIMEOUT);
+    return fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: abort.signal,
+    }).then((res) => {
+      if (res.status === 401) location.href = "/auth/discord/login?next=/dashboard";
+      if (!res.ok) throw new Error(res.status);
+      return res.json();
+    }).finally(() => clearTimeout(timer));
+  };
+  unsent++;
+  const done = writes.then(run).finally(() => unsent--);
   writes = done.catch(() => {});
   return done;
 }
+
+window.addEventListener("beforeunload", (e) => {
+  if (!unsent && !saveTimer && !unsavedCards.length) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 
 function applySaved(s) {
   saved.cards = new Set(s.cards);
@@ -152,13 +168,18 @@ const hasPassword = (id) => accountVault.has(id) || saved.accounts.has(id);
 
 let saveTimer;
 
+// Sends the settings now instead of after the usual pause. Resolves once they're saved.
+function saveNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  return send("PUT", "/api/me/settings", state).then((res) => applySaved(res.saved));
+}
+
 function save() {
   if (remote) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      send("PUT", "/api/me/settings", state)
-        .then((res) => applySaved(res.saved))
-        .catch(() => notify("Couldn't save your changes. Check your connection and try again."));
+      saveNow().then(retryUnsavedCards, () => notify("Couldn't save your changes. Check your connection and try again."));
     }, 400);
     return;
   }
@@ -553,6 +574,14 @@ function notify(message, undo) {
   toast.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove("show"), undo ? 5000 : 2600);
+}
+
+// A message that stays up until the next notify(), for work still going on.
+function progress(message) {
+  undoAction = null;
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
 }
 
 toast.addEventListener("click", (e) => {
@@ -1288,27 +1317,103 @@ importFile.addEventListener("change", async () => {
     return;
   }
   const taken = new Set(state.profiles.map((p) => p.label.toLowerCase()));
-  const added = [], skipped = [];
+  const added = [], skipped = [], cards = [];
   list.forEach((a) => {
     const result = a && typeof a === "object" ? fromAycd(a, taken) : { error: "Unknown entry" };
     if (result.error) return skipped.push(result.error);
     state.profiles.push(result.profile);
-    if (result.card) saveCard(result.profile.id, result.card);
+    if (result.card) {
+      cardVault.set(result.profile.id, result.card);
+      cards.push({ kind: "card", ref: result.profile.id, value: result.card });
+    }
     added.push(result.profile.id);
   });
   if (!added.length) {
     notify(skipped.length ? `Nothing imported. ${skipped[0]}.` : "No profiles found in that file.");
     return;
   }
+  if (skipped.length) console.warn("Skipped profiles:", skipped);
   log(`Imported ${plural(added.length, "profile")}`, file.name);
   const ids = new Set(added);
-  update(`Imported ${plural(added.length, "profile")}${skipped.length ? `, skipped ${skipped.length}` : ""}`, () => {
+  const undo = () => {
     state.profiles = state.profiles.filter((p) => !ids.has(p.id));
     ids.forEach((id) => cardVault.delete(id));
     update("Import undone");
-  });
-  if (skipped.length) console.warn("Skipped profiles:", skipped);
+  };
+  const summary = `Imported ${plural(added.length, "profile")}${skipped.length ? `, skipped ${skipped.length}` : ""}`;
+  if (!remote) return update(summary, undo);
+
+  render();
+  const failed = await saveImport(added.length, cards);
+  if (failed === null) notify("Couldn't save those profiles. Don't import again: stay on this page, check your connection, then make any change and they'll save with it.");
+  else if (failed) notify(`${summary}, but ${plural(failed, "card")} didn't save. Those profiles now show no card: add it on each.`);
+  else notify(summary, undo);
 });
+
+// Runs a save up to three times, waiting a little longer after each failure. Resolves true once it works.
+async function withRetries(run) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await run();
+      return true;
+    } catch {
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+  return false;
+}
+
+// How many cards /api/me/secrets takes per request (the server allows up to 25).
+const CARD_BATCH = 10;
+
+// Cards from an import whose profiles didn't reach the server. They go up after
+// the next settings save that works, since a card can't stick without its profile.
+let unsavedCards = [];
+
+function retryUnsavedCards() {
+  const ids = new Set(state.profiles.map((p) => p.id));
+  const cards = unsavedCards.splice(0).filter((c) => ids.has(c.ref));
+  if (!cards.length) return;
+  saveCards(cards, cards.length, 0).then((failed) => notify(failed
+    ? `Saved your imported profiles, but ${plural(failed, "card")} didn't save. Those profiles now show no card: add it on each.`
+    : "Saved your imported profiles."));
+}
+
+// Saves an import: the profile list first, so the profiles stick even if the
+// cards are cut off, then the cards a batch at a time while counting up
+// "Saving profile n/total". Returns how many cards didn't save, or null if the
+// profiles themselves didn't.
+async function saveImport(total, cards) {
+  const done = total - cards.length;
+  progress(`Saving profile ${Math.min(done + 1, total)}/${total}…`);
+  if (!await withRetries(saveNow)) {
+    unsavedCards.push(...cards);
+    return null;
+  }
+  return saveCards(cards, total, done);
+}
+
+// Sends cards a batch at a time, counting up from `done` of `total`. Returns how many didn't save.
+async function saveCards(cards, total, done) {
+  let failed = 0;
+  for (let i = 0; i < cards.length; i += CARD_BATCH) {
+    progress(`Saving profile ${done + 1}/${total}…`);
+    const batch = cards.slice(i, i + CARD_BATCH);
+    const ok = await withRetries(() => send("POST", "/api/me/secrets", { items: batch }));
+    if (ok) batch.forEach((c) => saved.cards.add(c.ref));
+    else {
+      // Show these as having no card (like an import with a bad number), so it's clear which to fix.
+      const refs = new Set(batch.map((c) => c.ref));
+      state.profiles.forEach((p) => { if (refs.has(p.id)) p.last4 = ""; });
+      refs.forEach((ref) => cardVault.delete(ref));
+      failed += batch.length;
+    }
+    done += batch.length;
+  }
+  if (failed) save();
+  render();
+  return failed;
+}
 
 const exportModal = byId("export-modal");
 const exportForm = byId("export-form");
